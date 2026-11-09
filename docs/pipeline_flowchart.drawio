@@ -1,0 +1,242 @@
+<mxfile host="app.diagrams.net" agent="antigravity" version="24.0.0">
+  <diagram id="veneer-shade-pipeline" name="Veneer Shade AI — Simplified Pipeline">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- TITLE -->
+        <mxCell id="title" value="Veneer Shade AI — Full Pipeline (Modules 0–6)" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1E293B;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1320" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- COLUMN 1: NCT DENTAL DATA (EXISTING)                         -->
+        <!-- ============================================================ -->
+        <mxCell id="col1label" value="EXISTING DATA" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="80" y="70" width="260" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="nctData" value="&lt;b&gt;NCT Tooth Dataset&lt;/b&gt;&lt;br&gt;782 Train / 209 Val Matched Pairs&lt;br&gt;Images + Binary Masks + YOLO .txt Labels" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F5F9;strokeColor=#64748B;strokeWidth=2;fontSize=11;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="100" width="260" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- COLUMN 2: NEW SMILE DATA (SCRAPED)                           -->
+        <!-- ============================================================ -->
+        <mxCell id="col2label" value="NEW DATA (Scraped Smiles)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#92400E;" vertex="1" parent="1">
+          <mxGeometry x="380" y="70" width="260" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="istockData" value="&lt;b&gt;iStock Natural Smile Photos&lt;/b&gt;&lt;br&gt;scripts/scrape_istock_smiles.py&lt;br&gt;is_new = True · 612×612 portraits" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#F59E0B;strokeWidth=2;fontSize=11;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="100" width="260" height="65" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eyeBurnout" value="&lt;b&gt;Anonymization &amp; Smile Crop&lt;/b&gt;&lt;br&gt;scripts/preprocess_scraped_smiles.py&lt;br&gt;• Burns out eyes &amp; upper forehead&lt;br&gt;• Crops lower smile arc (224×224)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF9C3;strokeColor=#CA8A04;strokeWidth=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="380" y="200" width="260" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bootstrapYolo" value="&lt;b&gt;Auto-Label Bounding Boxes&lt;/b&gt;&lt;br&gt;Run existing YOLO model on smile photos&lt;br&gt;→ generates .txt labels for YOLO retraining" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE8C7;strokeColor=#EA580C;strokeWidth=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="380" y="305" width="260" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- SHARED LANE: TRAINING PIPELINE (Modules 1b, 2b, 2)           -->
+        <!-- ============================================================ -->
+        <mxCell id="sharedTrainLabel" value="TRAINING PIPELINE (Notebook A — Kaggle T4)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#1D4ED8;" vertex="1" parent="1">
+          <mxGeometry x="680" y="70" width="640" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sharedBox" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#93C5FD;strokeWidth=2;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="680" y="90" width="640" height="660" as="geometry" />
+        </mxCell>
+
+        <!-- Module 0 -->
+        <mxCell id="mod0" value="&lt;b&gt;Module 0 — Environment Verification&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;explore_dataset.py&lt;/font&gt;&lt;br&gt;Hardware, library, and dataset structure checks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="700" y="110" width="600" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Module 1 -->
+        <mxCell id="mod1" value="&lt;b&gt;Module 1 — Fast Preprocessing&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;preprocess.py&lt;/font&gt;&lt;br&gt;cv2 INTER_CUBIC / INTER_NEAREST  ·  uint8 .npy cache  ·  3.2 GB output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#8B5CF6;strokeWidth=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="700" y="185" width="600" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Module 1b -->
+        <mxCell id="mod1b" value="&lt;b&gt;Module 1b — Gum &amp; Lip Colour Pre-Filter&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;suppress_gum_lip.py&lt;/font&gt;&lt;br&gt;Lab 'a' &gt; 12 + HSV Saturation &gt; 40 → zeroes out red gingival pixels&lt;br&gt;&lt;i&gt;Calibrated on both NCT close-ups AND natural smile photos&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#EF4444;strokeWidth=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="700" y="265" width="600" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- Module 2b -->
+        <mxCell id="mod2b" value="&lt;b&gt;Module 2b — YOLO Tooth Localization&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;train_yolo.py  ·  YOLOv8-nano&lt;/font&gt;&lt;br&gt;Training data: NCT YOLO labels + iStock smile bootstrapped labels&lt;br&gt;mAP50 ~0.53  ·  Recall ~0.79  ·  Published: hemantdarur/yolomodel-inference" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#F59E0B;strokeWidth=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="700" y="355" width="600" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Module 2 -->
+        <mxCell id="mod2" value="&lt;b&gt;Module 2 — MedSAM Fine-Tuning&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;train.py  ·  ViT-B image encoder FROZEN  ·  Mask decoder trained&lt;/font&gt;&lt;br&gt;&lt;b&gt;Best Val DSC: 0.8838&lt;/b&gt;  ·  Checkpoint: medsam_tooth_best.pth&lt;br&gt;Skips retrain if checkpoint exists  ·  FORCE_RETRAIN = True to override" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#3B82F6;strokeWidth=2;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="700" y="450" width="600" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Handoff note -->
+        <mxCell id="handoff" value="&lt;b&gt;Checkpoint Handoff (A → B)&lt;/b&gt;&lt;br&gt;Kaggle Dataset: &lt;i&gt;notebook-a-meowmeow&lt;/i&gt;&lt;br&gt;Provides: medsam_tooth_best.pth  +  YOLO best.pt (yolomodel-inference)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E2E8F0;strokeColor=#475569;dashed=1;fontSize=11;fontStyle=2;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="700" y="550" width="600" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- Archived experiment note -->
+        <mxCell id="archived" value="&lt;b&gt;Archived: DentalMedSAM-HQ (trialnerror/)&lt;/b&gt;&lt;br&gt;Failed — severe gum bleed + ragged margins  ·  DSC only 0.8628&lt;br&gt;Root cause: MedSAM ViT pretrained on grayscale CT/MRI, HQ tokens amplified wrong features" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF1F2;strokeColor=#E11D48;dashed=1;fontSize=10;arcSize=8;fontColor=#9F1239;" vertex="1" parent="1">
+          <mxGeometry x="700" y="630" width="600" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- INFERENCE PIPELINE (Modules 3, 4, 5)                          -->
+        <!-- ============================================================ -->
+        <mxCell id="inferLabel" value="INFERENCE PIPELINE (Notebook B)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#065F46;" vertex="1" parent="1">
+          <mxGeometry x="80" y="790" width="1240" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="inferBox" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#6EE7B7;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="80" y="810" width="1240" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="patientInput" value="&lt;b&gt;Patient Photo Input&lt;/b&gt;&lt;br&gt;Full-face selfie or intraoral close-up" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#94A3B8;fontSize=11;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="100" y="830" width="220" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mod3" value="&lt;b&gt;Module 3 — MedSAM Inference&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;infer.py&lt;/font&gt;&lt;br&gt;YOLO box prompt → MedSAM → Mask&lt;br&gt;&lt;b&gt;Adaptive Interior Enamel ROI&lt;/b&gt;&lt;br&gt;(distance transform, keeps inner 50% core)&lt;br&gt;Output: &lt;b&gt;tooth.png&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D1FAE5;strokeColor=#10B981;strokeWidth=2;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="360" y="820" width="240" height="115" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mod4" value="&lt;b&gt;Module 4 — BiSeNet Face Parsing&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;parse_face.py (pretrained CelebAMask-HQ)&lt;/font&gt;&lt;br&gt;19-class semantic map → skin + lip crops&lt;br&gt;Verified: skin_found=True, lip_found=True&lt;br&gt;Output: &lt;b&gt;skin.png + lip.png&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEDD5;strokeColor=#F97316;strokeWidth=2;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="640" y="820" width="240" height="115" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mod5" value="&lt;b&gt;Module 5 — Integration &amp; CIELab Extraction&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#475569&quot;&gt;pipeline.py&lt;/font&gt;&lt;br&gt;Chains Modules 3 + 4  ·  Masked-average CIELab (no background zeros)&lt;br&gt;CLAHE on L-channel (cancels lighting variation)&lt;br&gt;Output: &lt;b&gt;9-dim vector&lt;/b&gt; [tooth_L,a,b, skin_L,a,b, lip_L,a,b] + meta.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#CCFBF1;strokeColor=#14B8A6;strokeWidth=2;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="920" y="820" width="380" height="115" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- MODULE 6 (PLANNED, NOT BUILT)                                 -->
+        <!-- ============================================================ -->
+        <mxCell id="mod6box" value="NEXT: SHADE CLASSIFIER — Module 6 (Planned, Not Built)" style="text;html=1;align=center;fontSize=11;fontStyle=1;fontColor=#1E40AF;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1020" width="620" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mod6" value="&lt;b&gt;Module 6 — ViT + CLIP Shade Classifier&lt;/b&gt; &lt;font color=&quot;#DC2626&quot;&gt;[PLANNED — NOT YET BUILT]&lt;/font&gt;&lt;br&gt;Inputs: tooth.png + 9 CIELab numbers  ·  Contrastive alignment vs 16 VITA shade text prompts (A1–D4)&lt;br&gt;Conditional Authority Regularizer: Frozen teacher anchors is_new=True (iStock) samples only&lt;br&gt;Dual validation: Raw (guardrail-free) accuracy logged alongside CIELab-gated accuracy every epoch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#3B82F6;strokeWidth=2;dashed=1;fontSize=11;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1045" width="620" height="75" as="geometry" />
+        </mxCell>
+
+        <mxCell id="finalOutput" value="&lt;b&gt;Predicted VITA Dental Shade&lt;/b&gt;&lt;br&gt;e.g.  'A2'  — for veneer selection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;strokeWidth=3;fontSize=13;fontStyle=1;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="530" y="1140" width="360" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- EDGES                                                         -->
+        <!-- ============================================================ -->
+        <!-- NCT → Module 0 -->
+        <mxCell id="e_nct_mod0" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#64748B;strokeWidth=2;exitX=1;exitY=0.5;" edge="1" parent="1" source="nctData" target="mod0">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- iStock → Eye Burnout -->
+        <mxCell id="e_istock_burn" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#F59E0B;strokeWidth=2;" edge="1" parent="1" source="istockData" target="eyeBurnout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Eye Burnout → Bootstrap YOLO -->
+        <mxCell id="e_burn_boot" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#F59E0B;strokeWidth=2;" edge="1" parent="1" source="eyeBurnout" target="bootstrapYolo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Bootstrapped Labels → Module 2b (merges with NCT) -->
+        <mxCell id="e_boot_mod2b" value="bbox labels" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#EA580C;strokeWidth=2;dashed=1;fontSize=10;" edge="1" parent="1" source="bootstrapYolo" target="mod2b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- iStock smiles → mod1b (for threshold calibration) -->
+        <mxCell id="e_istock_mod1b" value="threshold calibration" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#EF4444;strokeWidth=1;dashed=1;fontSize=10;" edge="1" parent="1" source="istockData" target="mod1b">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="510" y="135" />
+              <mxPoint x="660" y="135" />
+              <mxPoint x="660" y="297" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Stage 1 flow -->
+        <mxCell id="e_m0_m1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#64748B;strokeWidth=2;" edge="1" parent="1" source="mod0" target="mod1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_m1_m1b" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#64748B;strokeWidth=2;" edge="1" parent="1" source="mod1" target="mod1b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_m1b_m2b" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#64748B;strokeWidth=2;" edge="1" parent="1" source="mod1b" target="mod2b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_m2b_m2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#64748B;strokeWidth=2;" edge="1" parent="1" source="mod2b" target="mod2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_m2_handoff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#3B82F6;strokeWidth=2;" edge="1" parent="1" source="mod2" target="handoff">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Handoff → Module 3 -->
+        <mxCell id="e_handoff_m3" value="checkpoint weights" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#3B82F6;strokeWidth=2;dashed=1;fontSize=10;" edge="1" parent="1" source="handoff" target="mod3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1000" y="620" />
+              <mxPoint x="1000" y="790" />
+              <mxPoint x="480" y="790" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Patient → Mod 3 and Mod 4 -->
+        <mxCell id="e_patient_m3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#10B981;strokeWidth=2;" edge="1" parent="1" source="patientInput" target="mod3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_patient_m4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#F97316;strokeWidth=2;" edge="1" parent="1" source="patientInput" target="mod4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Mod 3 → Mod 5 -->
+        <mxCell id="e_m3_m5" value="tooth.png" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#10B981;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="mod3" target="mod5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Mod 4 → Mod 5 -->
+        <mxCell id="e_m4_m5" value="skin.png + lip.png" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#F97316;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="mod4" target="mod5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Mod 5 → Mod 6 -->
+        <mxCell id="e_m5_m6" value="tooth.png + 9-dim CIELab vector" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#3B82F6;strokeWidth=2;fontSize=10;" edge="1" parent="1" source="mod5" target="mod6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1110" y="950" />
+              <mxPoint x="710" y="950" />
+              <mxPoint x="710" y="1045" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- iStock smiles → Mod 6 (authority data) -->
+        <mxCell id="e_istock_m6" value="smile crops (is_new=True)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#CA8A04;strokeWidth=1;dashed=1;fontSize=10;" edge="1" parent="1" source="eyeBurnout" target="mod6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="510" y="235" />
+              <mxPoint x="350" y="235" />
+              <mxPoint x="350" y="1082" />
+              <mxPoint x="400" y="1082" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Mod 6 → Final Output -->
+        <mxCell id="e_m6_out" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#16A34A;strokeWidth=3;" edge="1" parent="1" source="mod6" target="finalOutput">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

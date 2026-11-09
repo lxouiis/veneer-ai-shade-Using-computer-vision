@@ -1,0 +1,28 @@
+[Unit]
+Description=Tooth Segmentation Review (Streamlit)
+After=network.target
+
+[Service]
+# Run as a dedicated non-root user (see deploy/README.md step 3), not root -
+# this process downloads/runs arbitrary dataset images, no reason to give it
+# more system access than it needs.
+User=toothreview
+WorkingDirectory=/home/toothreview/app
+
+# GDRIVE_* secrets live here, not in the repo - keep this file's permissions
+# locked down (chmod 600), it's the only place the refresh token is stored
+# on this machine. See deploy/README.md step 5 for how to fill these in.
+EnvironmentFile=/home/toothreview/app/.env
+
+ExecStart=/home/toothreview/app/.venv/bin/streamlit run app.py \
+    --server.port 8501 \
+    --server.address 127.0.0.1 \
+    --server.headless true
+
+# Restart automatically if the process crashes (e.g. a transient Drive API
+# error) - this is meant to stay up unattended between Doc Sans's sessions.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

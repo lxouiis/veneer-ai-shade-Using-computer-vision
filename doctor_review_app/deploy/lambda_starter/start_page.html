@@ -1,0 +1,85 @@
+<!doctype html>
+<!--
+  Doc Sans bookmarks THIS page on her iPad, not the Streamlit app's own URL.
+  It has to live somewhere that's always available - an S3 static website is
+  the simplest option, since it works regardless of whether the EC2 instance
+  is on or off (that's the whole point of this page existing).
+
+  Before deploying: replace LAMBDA_URL and APP_URL below with your actual
+  Lambda Function URL and DuckDNS domain.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tooth Review Session</title>
+  <style>
+    body {
+      background: #0a0e16;
+      color: #ebf0f5;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .card { text-align: center; max-width: 320px; }
+    button {
+      font-size: 1.1rem;
+      padding: 14px 32px;
+      background: #101622;
+      color: #ebf0f5;
+      border: 2px solid #5ac8b4;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #status { margin-top: 18px; color: #6e7887; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Tooth Review Session</h2>
+    <button id="startBtn">Start</button>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    const LAMBDA_URL = "REPLACE_WITH_YOUR_LAMBDA_FUNCTION_URL";
+    const APP_URL = "REPLACE_WITH_YOUR_DUCKDNS_DOMAIN";
+
+    const button = document.getElementById("startBtn");
+    const statusEl = document.getElementById("status");
+
+    button.onclick = async () => {
+      button.disabled = true;
+      statusEl.textContent = "Starting instance...";
+      try {
+        await fetch(`${LAMBDA_URL}?action=start`);
+      } catch (e) {
+        statusEl.textContent = "Couldn't reach the starter - check your connection and try again.";
+        button.disabled = false;
+        return;
+      }
+      statusEl.textContent = "Booting up - this usually takes under a minute...";
+      pollUntilReady();
+    };
+
+    function pollUntilReady() {
+      // no-cors means we can't read the response, only whether the request
+      // succeeded at all - enough to tell "nothing's listening yet" apart
+      // from "the app is up," which is all this needs to know.
+      const interval = setInterval(async () => {
+        try {
+          await fetch(APP_URL, { mode: "no-cors" });
+          clearInterval(interval);
+          window.location.href = APP_URL;
+        } catch (e) {
+          // not ready yet - keep polling
+        }
+      }, 5000);
+    }
+  </script>
+</body>
+</html>

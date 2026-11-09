@@ -1,0 +1,40 @@
+# Datasets and model checkpoints - large binaries, fetched separately
+# (Kaggle datasets / checkpoints, see README for exact sources)
+/data/
+/medsam_tooth_best/
+/yolov8n/
+*.pth
+*.pt
+*.ckpt
+
+# Example/eval output images - not meant for public distribution without
+# checking each source photo's own license (stock photo vs. dataset terms)
+/docs/outputs_*/
+
+# Internal planning notes - not polished for public reading
+/convo/
+/trialnerror/
+
+# Copyrighted published papers / third-party writeups - not ours to redistribute
+docs/41598_2024_Article_69314.pdf
+docs/Full Length Paper.pdf
+docs/top_10_arc_segmentation_solutions.pdf
+
+# iStock-sourced example images / scraper - licensing risk, don't redistribute
+docs/output-download*.zip
+scripts/scrape_istock_smiles.py
+
+# Secrets - never commit these
+.env
+*.env
+client_secret*.json
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store

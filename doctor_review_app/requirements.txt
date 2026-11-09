@@ -1,0 +1,12 @@
+streamlit
+streamlit-drawable-canvas
+torch
+torchvision
+opencv-python-headless
+numpy
+scikit-image
+segment-anything
+ultralytics
+Pillow
+google-auth-oauthlib
+google-api-python-client

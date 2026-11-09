@@ -1,0 +1,12 @@
+# Reverse proxy: Caddy listens on 443 (public) and forwards to Streamlit,
+# which only listens on localhost:8501 (see tooth-review.service) - Caddy is
+# the only thing actually exposed to the internet, and it gets Doc Sans a
+# real https:// link (auto-issued/renewed Let's Encrypt cert, so her iPad
+# shows a normal padlock, not a security warning) with zero manual TLS setup.
+#
+# Replace with your actual domain/subdomain (see deploy/README.md step 6 for
+# where to get one free, e.g. a DuckDNS subdomain pointed at this instance's
+# Elastic IP).
+your-subdomain.duckdns.org {
+    reverse_proxy 127.0.0.1:8501
+}

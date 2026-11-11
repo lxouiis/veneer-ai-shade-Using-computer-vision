@@ -143,11 +143,35 @@ def main():
             if rect is None:
                 st.warning("Draw a box first.")
             else:
-                st.success("(Preview) Would rerun the model with this box - mask unchanged here.")
-                st.session_state.stage = "reviewing"
+                # Preview has no real model - fake a visibly different mask
+                # (shifted oval) purely so the before/after screen has
+                # something distinct to show side by side.
+                st.session_state.mask_before_rerun = mask
+                shifted = make_fake_mask(original_image.shape)
+                shifted = np.roll(shifted, 40, axis=1)
+                st.session_state.predicted_mask = shifted
+                st.session_state.stage = "box_result"
                 st.rerun()
         if cancel_col.button("Cancel", use_container_width=True):
             st.session_state.stage = "reviewing"
+            st.rerun()
+
+    elif st.session_state.stage == "box_result":
+        st.write("Here's the result before and after your box.")
+        before_col, after_col = st.columns(2)
+        with before_col:
+            st.image(overlay_mask(original_image, st.session_state.mask_before_rerun),
+                     caption="Before (original prediction)", use_container_width=True)
+        with after_col:
+            st.image(overlay_mask(original_image, mask),
+                     caption="After (your box)", use_container_width=True)
+
+        accept_col, redraw_col = st.columns(2)
+        if accept_col.button("Use this result", type="primary", use_container_width=True):
+            st.session_state.stage = "reviewing"
+            st.rerun()
+        if redraw_col.button("Draw the box again", use_container_width=True):
+            st.session_state.stage = "box_prompt"
             st.rerun()
 
     elif st.session_state.stage == "editing":

@@ -329,11 +329,34 @@ def main():
                 # exactly what the model expects as a prompt.
                 box = np.array([c / scale for c in rect], dtype=np.float32)
                 new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
+                # Keep the old mask around so the comparison screen can show
+                # what changed - without this, overwriting predicted_mask
+                # straight away would mean there's nothing left to compare.
+                st.session_state.mask_before_rerun = mask
                 st.session_state.predicted_mask = new_mask
-                st.session_state.stage = "reviewing"
+                st.session_state.stage = "box_result"
                 st.rerun()
         if cancel_col.button("Cancel", use_container_width=True):
             st.session_state.stage = "reviewing"
+            st.rerun()
+
+    # ---- Stage: box_result (compare old mask vs the box-rerun result) ----
+    elif st.session_state.stage == "box_result":
+        st.write("Here's the result before and after your box.")
+        before_col, after_col = st.columns(2)
+        with before_col:
+            st.image(overlay_mask(original_image, st.session_state.mask_before_rerun),
+                     caption="Before (original prediction)", use_container_width=True)
+        with after_col:
+            st.image(overlay_mask(original_image, mask),
+                     caption="After (your box)", use_container_width=True)
+
+        accept_col, redraw_col = st.columns(2)
+        if accept_col.button("Use this result", type="primary", use_container_width=True):
+            st.session_state.stage = "reviewing"
+            st.rerun()
+        if redraw_col.button("Draw the box again", use_container_width=True):
+            st.session_state.stage = "box_prompt"
             st.rerun()
 
     # ---- Stage: editing (doctor redraws the mask by hand) ----

@@ -1,7 +1,12 @@
 streamlit
 streamlit-drawable-canvas
-torch
-torchvision
+# Pinned below 2.9 - newer torch/torchvision releases assume a real, complete
+# Python 3.11 (this feature has existed since actual 3.11.0 final), but
+# Ubuntu 22.04's "python3.11" apt package is a never-finished 3.11.0~rc1
+# build missing sys.get_int_max_str_digits - these versions predate that
+# dependency and run fine on it.
+torch==2.8.0
+torchvision==0.23.0
 opencv-python-headless
 numpy
 scikit-image

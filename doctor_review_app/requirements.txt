@@ -1,11 +1,15 @@
+streamlit
 # Pinned - streamlit-drawable-canvas's newest release (0.13.0+) requires
 # Streamlit's brand-new "Components v2" ("bidi-components") mechanism,
 # which throws a BidiComponent CSS-load error and leaves the actual drawing
 # canvas unusable (confirmed: the asset itself loads fine over HTTP, the
 # break is in this new loading mechanism, not a missing file or a server
-# config issue). These versions predate that rewrite entirely, using the
-# long-stable Components v1 (iframe-based) mechanism instead.
-streamlit==1.38.0
+# config issue). 0.9.3 predates that rewrite entirely and uses the
+# long-stable Components v1 (iframe-based) mechanism instead, regardless of
+# which Streamlit version it's running on - so streamlit itself does NOT
+# need pinning too (an earlier attempt pinned streamlit==1.38.0 as well,
+# which was wrong: that version predates use_container_width on st.image,
+# which this app uses throughout, and broke the page entirely).
 streamlit-drawable-canvas==0.9.3
 # Pinned below 2.9 - newer torch/torchvision releases assume a real, complete
 # Python 3.11 (this feature has existed since actual 3.11.0 final), but

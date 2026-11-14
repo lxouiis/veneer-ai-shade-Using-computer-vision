@@ -96,6 +96,18 @@ CANVAS_MAX_DIM = 900  # photos (and the 1024x1024 working frame) can be too
 
 STATUS_ICON = {"not_reviewed": "⬜", "approved": "✅", "needs_review": "\U0001f6a9"}
 
+# Same 16 shades module_6_vit_clip trains against (VITA Classical guide) -
+# kept here too rather than imported, since this app and that training
+# script run in completely separate environments (this one's a long-running
+# server process, that one's a one-off Kaggle training job).
+VITA_SHADES = [
+    "A1", "A2", "A3", "A3.5", "A4",
+    "B1", "B2", "B3", "B4",
+    "C1", "C2", "C3", "C4",
+    "D2", "D3", "D4",
+]
+NOT_SURE = "-- not sure / skip --"
+
 # Optional - lets the sidebar show a "Stop Instance" button, so Doc Sans can
 # end her own session instead of leaving the EC2 instance running (and
 # billing) until someone else notices and stops it manually. Unset means the
@@ -130,11 +142,16 @@ def load_reviews_db(client):
     return json.loads(data), existing["id"]
 
 
-def save_review(client, filename, status, mask_file_id=None):
+def save_review(client, filename, status, mask_file_id=None, doctor_shade=None):
     db, reviews_file_id = load_reviews_db(client)
     db[filename] = {
         "status": status,  # "approved" | "approved_after_edit" | "needs_review"
         "mask_file_id": mask_file_id,
+        # Dr. Sanskriti's own real shade judgement for this photo - separate
+        # from, and stronger than, module_6_shade_classification's ΔE guess.
+        # None means she didn't pick one (left on "not sure / skip") -
+        # distinct from an actual answer, not treated as a guess either way.
+        "doctor_shade": doctor_shade,
         "reviewed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     payload = json.dumps(db, indent=2).encode("utf-8")
@@ -376,6 +393,22 @@ def main():
     with col2:
         st.image(overlay_mask(original_image, mask), caption="What the model sees", use_container_width=True)
 
+    # ---- Shade judgement (your own, not the model's) ----
+    # Shown throughout, not just on the review buttons, so it stays visible
+    # (and her pick stays selected) even if she goes through a box-redraw or
+    # hand-edit first. Pre-filled from a prior session's answer, if there is
+    # one - revisiting an already-reviewed photo via Previous/Next shouldn't
+    # make her re-decide something she already answered.
+    existing_entry = reviews_db.get(filename)
+    prior_shade = existing_entry.get("doctor_shade") if existing_entry else None
+    shade_options = [NOT_SURE] + VITA_SHADES
+    default_index = shade_options.index(prior_shade) if prior_shade in VITA_SHADES else 0
+    shade_choice = st.selectbox(
+        "What VITA shade do you think this actually is? (your own judgement, not the model's guess)",
+        shade_options, index=default_index, key=f"shade_{filename}",
+    )
+    doctor_shade = None if shade_choice == NOT_SURE else shade_choice
+
     # ---- Stage: reviewing ----
     if st.session_state.stage == "reviewing":
         approve_col, box_col, hand_col = st.columns(3)
@@ -383,7 +416,7 @@ def main():
             mask_bytes = cv2.imencode(".png", (mask * 255).astype(np.uint8))[1].tobytes()
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
-            save_review(client, filename, "approved", file_id)
+            save_review(client, filename, "approved", file_id, doctor_shade)
             _advance_after_review()
 
         if box_col.button("\U0001f4e6 Redraw the box", use_container_width=True,
@@ -584,13 +617,13 @@ def main():
             mask_bytes = cv2.imencode(".png", st.session_state.corrected_mask)[1].tobytes()
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
-            save_review(client, filename, "approved_after_edit", file_id)
+            save_review(client, filename, "approved_after_edit", file_id, doctor_shade)
             _advance_after_review()
 
         if no_col.button("No - still wrong, flag for review", use_container_width=True):
             flagged_bytes = cv2.imencode(".jpg", cv2.cvtColor(original_image, cv2.COLOR_RGB2BGR))[1].tobytes()
             client.upload_bytes(filename, needs_review_folder_id, flagged_bytes, "image/jpeg")
-            save_review(client, filename, "needs_review")
+            save_review(client, filename, "needs_review", doctor_shade=doctor_shade)
             _advance_after_review()
 
     # ---- Progress ----

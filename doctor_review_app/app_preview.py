@@ -16,6 +16,9 @@ MASK_OVERLAY_ALPHA = 0.4
 BRUSH_SIZE = 12
 CANVAS_MAX_DIM = 900
 STATUS_ICON = {"not_reviewed": "⬜", "approved": "✅", "needs_review": "\U0001f6a9"}
+VITA_SHADES = ["A1", "A2", "A3", "A3.5", "A4", "B1", "B2", "B3", "B4",
+               "C1", "C2", "C3", "C4", "D2", "D3", "D4"]
+NOT_SURE = "-- not sure / skip --"
 
 MASK_CLASS_VALUES = {"background": 0, "anomaly": 85, "ignore": 170, "tooth": 255}
 CLASS_STROKE_COLORS = {
@@ -153,6 +156,12 @@ def main():
         st.image(original_image, caption="Original photo", use_container_width=True)
     with col2:
         st.image(overlay_mask(original_image, mask), caption="What the model sees", use_container_width=True)
+
+    shade_choice = st.selectbox(
+        "What VITA shade do you think this actually is? (your own judgement, not the model's guess)",
+        [NOT_SURE] + VITA_SHADES, key=f"shade_{filename}",
+    )
+    doctor_shade = None if shade_choice == NOT_SURE else shade_choice  # noqa: F841 (preview only, not saved anywhere)
 
     if st.session_state.stage == "reviewing":
         approve_col, box_col, hand_col = st.columns(3)

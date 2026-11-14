@@ -145,3 +145,30 @@ trustworthy color-extraction source than raw MedSAM output - this matters
 most if module_5's output ends up feeding `module_6_vit_clip`'s pseudo-label
 training data, where garbage-in from a bad mask would otherwise get baked
 directly into training labels.
+
+## The shade dropdown - what it is, and what it deliberately isn't
+Alongside mask review, she can also record her own VITA shade judgement per
+photo, via a dropdown ("-- not sure / skip --" plus the 16 shades), saved
+into `reviews.json` as `doctor_shade`. This is the real label
+`module_6_vit_clip` needs for training (see that module's own notes.md) -
+module_5 only ever produces a 9-number colour reading, never a shade label
+itself.
+
+**Important, and deliberately worded this way in the UI:** Dr. Sanskriti is
+a dental student, not a licensed/attending dentist. Her shade judgement is a
+genuinely useful, better-informed data point than pure colour-distance maths
+alone - she can catch things ΔE can't, like an obviously wrong photo or an
+anomalous case - but it is **not** "ground truth" or "expert-verified" in
+the way an attending's shade call would be. Calling it that anywhere
+(documentation, a future paper, this file) would be overclaiming what it
+actually is. If this data ever needs to hold up to real scrutiny - a
+publication, a clinical sale - a second check from a licensed dentist on at
+least a sample of her calls is the honest next step, not optional polish.
+
+This is a different, lower bar than mask review just above: judging whether
+a drawn outline matches a photo is a visual-correctness task anyone trained
+to look carefully can do reliably; judging what a tooth's "true" shade is
+is a clinical call that genuinely benefits from more experience than a
+student has yet. Keep that distinction in mind if this project's framing
+(to Sans, to a paper, to a future clinic buyer) ever treats the two the
+same way.

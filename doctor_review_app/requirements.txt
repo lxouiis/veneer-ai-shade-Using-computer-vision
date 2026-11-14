@@ -1,5 +1,12 @@
-streamlit
-streamlit-drawable-canvas
+# Pinned - streamlit-drawable-canvas's newest release (0.13.0+) requires
+# Streamlit's brand-new "Components v2" ("bidi-components") mechanism,
+# which throws a BidiComponent CSS-load error and leaves the actual drawing
+# canvas unusable (confirmed: the asset itself loads fine over HTTP, the
+# break is in this new loading mechanism, not a missing file or a server
+# config issue). These versions predate that rewrite entirely, using the
+# long-stable Components v1 (iframe-based) mechanism instead.
+streamlit==1.38.0
+streamlit-drawable-canvas==0.9.3
 # Pinned below 2.9 - newer torch/torchvision releases assume a real, complete
 # Python 3.11 (this feature has existed since actual 3.11.0 final), but
 # Ubuntu 22.04's "python3.11" apt package is a never-finished 3.11.0~rc1

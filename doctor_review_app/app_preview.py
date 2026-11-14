@@ -17,6 +17,18 @@ BRUSH_SIZE = 12
 CANVAS_MAX_DIM = 900
 STATUS_ICON = {"not_reviewed": "⬜", "approved": "✅", "needs_review": "\U0001f6a9"}
 
+MASK_CLASS_VALUES = {"background": 0, "anomaly": 85, "ignore": 170, "tooth": 255}
+CLASS_STROKE_COLORS = {
+    "tooth": (255, 255, 255), "ignore": (255, 165, 0),
+    "anomaly": (255, 0, 255), "erase": (0, 0, 0),
+}
+CLASS_OVERLAY_COLORS = {"tooth": (0, 255, 0), "ignore": (255, 165, 0), "anomaly": (255, 0, 255)}
+CENTER_PRESETS = {
+    "↖": (0.2, 0.2), "↑": (0.5, 0.2), "↗": (0.8, 0.2),
+    "←": (0.2, 0.5), "•": (0.5, 0.5), "→": (0.8, 0.5),
+    "↙": (0.2, 0.8), "↓": (0.5, 0.8), "↘": (0.8, 0.8),
+}
+
 FAKE_FILENAMES = ["fake_patient_001.jpg", "fake_patient_002.jpg", "fake_patient_003.jpg"]
 
 
@@ -42,6 +54,44 @@ def overlay_mask(image, mask):
     color_layer[mask_resized > 0] = MASK_OVERLAY_COLOR
     blended = overlay * (1 - MASK_OVERLAY_ALPHA) + color_layer * MASK_OVERLAY_ALPHA
     return blended.astype(np.uint8)
+
+
+def overlay_class_mask(image, class_mask):
+    class_resized = cv2.resize(class_mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+    overlay = image.copy().astype(np.float32)
+    color_layer = np.zeros_like(overlay)
+    for class_name, value in MASK_CLASS_VALUES.items():
+        if class_name == "background":
+            continue
+        color_layer[class_resized == value] = CLASS_OVERLAY_COLORS[class_name]
+    present = class_resized != MASK_CLASS_VALUES["background"]
+    blended = overlay.copy()
+    blended[present] = (overlay[present] * (1 - MASK_OVERLAY_ALPHA)
+                        + color_layer[present] * MASK_OVERLAY_ALPHA)
+    return blended.astype(np.uint8)
+
+
+def decode_class_canvas(image_data):
+    h, w = image_data.shape[:2]
+    class_values = np.zeros((h, w), dtype=np.uint8)
+    touched = np.zeros((h, w), dtype=bool)
+    alpha = image_data[:, :, 3]
+    rgb = image_data[:, :, :3]
+    for class_name, stroke_color in CLASS_STROKE_COLORS.items():
+        close = np.all(np.abs(rgb.astype(np.int16) - np.array(stroke_color)) < 30, axis=-1)
+        hit = close & (alpha > 0)
+        class_values[hit] = MASK_CLASS_VALUES.get(class_name, MASK_CLASS_VALUES["background"])
+        touched |= hit
+    return class_values, touched
+
+
+def view_window(h, w, zoom, cx, cy):
+    z = min(max(float(zoom), 1.0), 8.0)
+    cw, ch = max(16, int(round(w / z))), max(16, int(round(h / z)))
+    cw, ch = min(cw, w), min(ch, h)
+    x0 = int(round(min(max(cx * w - cw / 2, 0), w - cw)))
+    y0 = int(round(min(max(cy * h - ch / 2, 0), h - ch)))
+    return x0, y0, x0 + cw, y0 + ch
 
 
 def scale_for_canvas(h, w):
@@ -116,7 +166,9 @@ def main():
             st.rerun()
 
         if hand_col.button("✏️ Fix by hand", use_container_width=True,
-                           help="Draw directly on the mask with a brush."):
+                           help="Draw directly on the mask with a brush - zoom in for "
+                                "fine detail, add teeth the model missed entirely, or "
+                                "flag an overlap/anomaly region."):
             st.session_state.stage = "editing"
             st.rerun()
 
@@ -175,37 +227,98 @@ def main():
             st.rerun()
 
     elif st.session_state.stage == "editing":
-        st.info("Draw over the tooth region to correct the mask. White = tooth, "
-                "use the eraser tool to remove incorrect areas.")
         h, w = original_image.shape[:2]
-        canvas_h, canvas_w, _ = scale_for_canvas(h, w)
-        display_image = cv2.resize(original_image, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
+
+        if st.session_state.get("editing_mask_filename") != filename:
+            tooth_sized = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+            class_mask = np.where(tooth_sized > 0, MASK_CLASS_VALUES["tooth"], MASK_CLASS_VALUES["background"])
+            st.session_state.editing_class_mask = class_mask.astype(np.uint8)
+            st.session_state.editing_mask_filename = filename
+            st.session_state.editing_zoom = 1.0
+            st.session_state.editing_cx = 0.5
+            st.session_state.editing_cy = 0.5
+            st.session_state.editing_undo_stack = []
+
+        st.caption("Zoom in for fine detail. The canvas below has its own built-in "
+                   "Undo in its top-right toolbar; already applied a mistake? Use "
+                   "'Undo last Apply' further down.")
+
+        zoom_col, brush_col = st.columns(2)
+        st.session_state.editing_zoom = zoom_col.slider(
+            "Zoom", 1.0, 6.0, st.session_state.editing_zoom, step=0.5)
+        brush_size = brush_col.slider("Brush size", 2, 60, BRUSH_SIZE)
+
+        st.write("Which part of the photo:")
+        preset_cols = st.columns(3)
+        for i, (label, (cx, cy)) in enumerate(CENTER_PRESETS.items()):
+            if preset_cols[i % 3].button(label, use_container_width=True, key=f"center_{label}_{filename}"):
+                st.session_state.editing_cx, st.session_state.editing_cy = cx, cy
+                st.rerun()
+
+        class_choice = st.radio(
+            "What are you drawing:",
+            ["🦷 Tooth", "⚠️ Ignore (overlap/ambiguous)", "🔴 Anomaly (flag for later)", "🧹 Erase"],
+            horizontal=True,
+        )
+        class_key = {"🦷 Tooth": "tooth", "⚠️ Ignore (overlap/ambiguous)": "ignore",
+                    "🔴 Anomaly (flag for later)": "anomaly", "🧹 Erase": "erase"}[class_choice]
+
+        st.image(overlay_class_mask(original_image, st.session_state.editing_class_mask),
+                 caption="Current progress (zoomed-out overview)", use_container_width=True)
+
+        zoom = st.session_state.editing_zoom
+        cx, cy = st.session_state.editing_cx, st.session_state.editing_cy
+        x0, y0, x1, y1 = view_window(h, w, zoom, cx, cy)
+        crop = original_image[y0:y1, x0:x1]
+        crop_h, crop_w = crop.shape[:2]
+        canvas_h, canvas_w, _ = scale_for_canvas(crop_h, crop_w)
+        display_crop = cv2.resize(crop, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
 
         canvas_result = st_canvas(
-            fill_color="rgba(255, 255, 255, 1)",
-            stroke_width=BRUSH_SIZE,
-            stroke_color="white",
-            background_image=Image.fromarray(display_image),
+            fill_color="rgba(0, 0, 0, 0)",
+            stroke_width=brush_size,
+            stroke_color=f"rgb{CLASS_STROKE_COLORS[class_key]}",
+            background_image=Image.fromarray(display_crop),
             update_streamlit=True,
             height=canvas_h,
             width=canvas_w,
             drawing_mode="freedraw",
-            key=f"edit_canvas_{filename}",
+            key=f"edit_canvas_{filename}_{zoom}_{cx}_{cy}",
         )
 
-        save_col, cancel_col = st.columns(2)
-        if save_col.button("Save corrected mask", type="primary", use_container_width=True):
+        apply_col, undo_col, done_col, cancel_col = st.columns(4)
+        if apply_col.button("Apply this view", use_container_width=True):
             if canvas_result.image_data is not None:
-                st.session_state.stage = "confirming"
-                st.rerun()
+                class_crop, touched_crop = decode_class_canvas(canvas_result.image_data)
+                class_crop = cv2.resize(class_crop, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
+                touched_crop = cv2.resize(touched_crop.astype(np.uint8), (crop_w, crop_h),
+                                          interpolation=cv2.INTER_NEAREST) > 0
+                if touched_crop.any():
+                    st.session_state.editing_undo_stack.append(st.session_state.editing_class_mask.copy())
+                    st.session_state.editing_undo_stack = st.session_state.editing_undo_stack[-10:]
+                    region = st.session_state.editing_class_mask[y0:y1, x0:x1]
+                    region[touched_crop] = class_crop[touched_crop]
+                    st.session_state.editing_class_mask[y0:y1, x0:x1] = region
+                    st.success("Applied.")
+                else:
+                    st.warning("Draw something first.")
             else:
-                st.warning("Draw the corrected tooth region before saving.")
+                st.warning("Draw something first.")
+        if undo_col.button("↩️ Undo last Apply", use_container_width=True,
+                           disabled=not st.session_state.editing_undo_stack):
+            st.session_state.editing_class_mask = st.session_state.editing_undo_stack.pop()
+            st.rerun()
+        if done_col.button("Done - review result", type="primary", use_container_width=True):
+            st.session_state.corrected_mask = st.session_state.editing_class_mask
+            st.session_state.stage = "confirming"
+            st.rerun()
         if cancel_col.button("Cancel", use_container_width=True):
             st.session_state.stage = "reviewing"
             st.rerun()
 
     elif st.session_state.stage == "confirming":
-        st.image(overlay_mask(original_image, mask), caption="Corrected mask (preview - same fake mask shown)",
+        st.image(overlay_class_mask(original_image, st.session_state.corrected_mask),
+                 caption="Corrected mask (green=tooth, orange=ignore, magenta=anomaly)",
                  use_container_width=True)
         st.write("Is this corrected mask now accurate?")
         yes_col, no_col = st.columns(2)

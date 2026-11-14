@@ -110,15 +110,14 @@ sudo mkdir -p /home/toothreview/app
 sudo chown -R toothreview:toothreview /home/toothreview/app
 ```
 
-Now get the `doctor_review_app` folder onto the instance. Easiest way,
-since this project isn't on GitHub yet: open a **second** Terminal tab on
-your Mac (don't close the SSH one) and run, from your project folder:
+Now get the `doctor_review_app` folder onto the instance. It's on GitHub now
+(`github.com/lxouiis/veneer-ai-shade-Using-computer-vision`), so clone it
+straight from there - no need to copy files from your Mac:
 ```bash
-scp -i ~/Downloads/your-key-name.pem -r doctor_review_app ubuntu@<your-elastic-ip>:/tmp/doctor_review_app
-```
-Back in your SSH terminal:
-```bash
-sudo mv /tmp/doctor_review_app/* /home/toothreview/app/
+sudo apt install -y git
+sudo -u toothreview git clone https://github.com/lxouiis/veneer-ai-shade-Using-computer-vision.git /tmp/veneer-clone
+sudo mv /tmp/veneer-clone/doctor_review_app/* /home/toothreview/app/
+sudo rm -rf /tmp/veneer-clone
 sudo chown -R toothreview:toothreview /home/toothreview/app
 ```
 

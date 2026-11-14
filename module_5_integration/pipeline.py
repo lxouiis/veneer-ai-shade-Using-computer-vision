@@ -142,7 +142,19 @@ def run_stage1_pipeline(image_path, medsam_model, yolo_model, bisenet_model, out
 
     if approved_mask_path:
         raw_mask = cv2.imread(approved_mask_path, cv2.IMREAD_GRAYSCALE)
-        tooth_mask = (raw_mask > 127).astype(np.uint8)
+        # doctor_review_app's hand-edit tool saves 4 distinct pixel values,
+        # not a plain boolean - 255=tooth, 170=ignore (overlap/ambiguous,
+        # excluded here so it can't contaminate the color reading), 85=
+        # anomaly (flagged, also excluded from today's color math, but its
+        # presence is recorded below rather than silently discarded - it's
+        # meant for a future training stage, not thrown away). A raw,
+        # un-edited approval only ever contains 0/255 (see app.py's "Looks
+        # good" path), so this still works correctly for those too.
+        tooth_mask = (raw_mask == 255).astype(np.uint8)
+        if np.any(raw_mask == 170):
+            flags.append("ignore_region_present")
+        if np.any(raw_mask == 85):
+            flags.append("anomaly_region_present")
         flags.append("tooth_mask_doctor_approved")
         # No model box prompt was used for an approved mask - record the
         # mask's own extent instead, so meta.json's bbox field still means

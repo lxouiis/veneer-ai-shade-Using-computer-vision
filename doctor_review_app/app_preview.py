@@ -26,11 +26,6 @@ CLASS_STROKE_COLORS = {
     "anomaly": (255, 0, 255), "erase": (0, 0, 0),
 }
 CLASS_OVERLAY_COLORS = {"tooth": (0, 255, 0), "ignore": (255, 165, 0), "anomaly": (255, 0, 255)}
-CENTER_PRESETS = {
-    "↖": (0.2, 0.2), "↑": (0.5, 0.2), "↗": (0.8, 0.2),
-    "←": (0.2, 0.5), "•": (0.5, 0.5), "→": (0.8, 0.5),
-    "↙": (0.2, 0.8), "↓": (0.5, 0.8), "↘": (0.8, 0.8),
-}
 
 FAKE_FILENAMES = ["fake_patient_001.jpg", "fake_patient_002.jpg", "fake_patient_003.jpg"]
 
@@ -254,15 +249,14 @@ def main():
 
         zoom_col, brush_col = st.columns(2)
         st.session_state.editing_zoom = zoom_col.slider(
-            "Zoom", 1.0, 6.0, st.session_state.editing_zoom, step=0.5)
+            "Zoom", 1.0, 8.0, st.session_state.editing_zoom, step=0.25)
         brush_size = brush_col.slider("Brush size", 2, 60, BRUSH_SIZE)
 
-        st.write("Which part of the photo:")
-        preset_cols = st.columns(3)
-        for i, (label, (cx, cy)) in enumerate(CENTER_PRESETS.items()):
-            if preset_cols[i % 3].button(label, use_container_width=True, key=f"center_{label}_{filename}"):
-                st.session_state.editing_cx, st.session_state.editing_cy = cx, cy
-                st.rerun()
+        pos_col1, pos_col2 = st.columns(2)
+        st.session_state.editing_cx = pos_col1.slider(
+            "Left ↔ Right", 0.0, 1.0, st.session_state.editing_cx, step=0.02)
+        st.session_state.editing_cy = pos_col2.slider(
+            "Top ↔ Bottom", 0.0, 1.0, st.session_state.editing_cy, step=0.02)
 
         class_choice = st.radio(
             "What are you drawing:",

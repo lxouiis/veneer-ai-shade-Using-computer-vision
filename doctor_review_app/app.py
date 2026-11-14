@@ -71,15 +71,6 @@ CLASS_STROKE_COLORS = {
                                     # painted here" apart from "deliberately
                                     # painted background," see decode below.
 }
-# Zoom presets - a simple 3x3 "which part of the photo" picker rather than
-# raw pan sliders. (cx, cy) are the fraction-of-image center point used by
-# view_window below; CENTER_PRESETS' 9 options cover corners/edges/middle,
-# enough to reach any part of a tooth photo without fiddly slider dragging.
-CENTER_PRESETS = {
-    "↖": (0.2, 0.2), "↑": (0.5, 0.2), "↗": (0.8, 0.2),
-    "←": (0.2, 0.5), "•": (0.5, 0.5), "→": (0.8, 0.5),
-    "↙": (0.2, 0.8), "↓": (0.5, 0.8), "↘": (0.8, 0.8),
-}
 # For displaying each class as a translucent color over the photo - same
 # idea as MASK_OVERLAY_COLOR/ALPHA above, extended to 3 distinguishable
 # classes instead of one.
@@ -522,16 +513,18 @@ def main():
 
         zoom_col, brush_col = st.columns(2)
         st.session_state.editing_zoom = zoom_col.slider(
-            "Zoom", 1.0, 6.0, st.session_state.editing_zoom, step=0.5)
+            "Zoom", 1.0, 8.0, st.session_state.editing_zoom, step=0.25)
         brush_size = brush_col.slider("Brush size", 2, 60, BRUSH_SIZE)
 
-        st.write("Which part of the photo:")
-        preset_cols = st.columns(3)
-        presets = list(CENTER_PRESETS.items())
-        for i, (label, (cx, cy)) in enumerate(presets):
-            if preset_cols[i % 3].button(label, use_container_width=True, key=f"center_{label}_{filename}"):
-                st.session_state.editing_cx, st.session_state.editing_cy = cx, cy
-                st.rerun()
+        # Continuous sliders, not discrete preset buttons - a mouse/trackpad
+        # drags a slider naturally to any position; the earlier 9-button
+        # grid was built with touch in mind, which isn't how this is
+        # actually being used (Dr. Sanskriti reviews on a PC, not a tablet).
+        pos_col1, pos_col2 = st.columns(2)
+        st.session_state.editing_cx = pos_col1.slider(
+            "Left ↔ Right", 0.0, 1.0, st.session_state.editing_cx, step=0.02)
+        st.session_state.editing_cy = pos_col2.slider(
+            "Top ↔ Bottom", 0.0, 1.0, st.session_state.editing_cy, step=0.02)
 
         class_choice = st.radio(
             "What are you drawing:",

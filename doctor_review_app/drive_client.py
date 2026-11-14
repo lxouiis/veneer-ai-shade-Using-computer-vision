@@ -6,9 +6,30 @@ rather than inventing a second auth approach for the same problem.
 from __future__ import annotations
 import io
 import os
+import ssl
+import socket
+import time
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+
+# A flaky network hop to Google's servers occasionally corrupts a TLS
+# handshake mid-stream - this shows up as inconsistent, different-looking
+# SSL errors each time (cipher failure one attempt, wrong-version-number the
+# next), which is the signature of a bad connection, not a real config bug.
+# Retrying a fresh connection almost always succeeds on the 2nd or 3rd try.
+_RETRYABLE = (ssl.SSLError, socket.error, ConnectionError, TimeoutError)
+_RETRY_DELAYS = (1, 2, 4)
+
+
+def _execute_with_retry(request):
+    for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
+        try:
+            return request.execute()
+        except _RETRYABLE:
+            if delay is None:
+                raise
+            time.sleep(delay)
 
 
 class DriveClient:
@@ -39,11 +60,11 @@ class DriveClient:
     def list_children(self, parent_id: str) -> list[dict]:
         out, token = [], None
         while True:
-            r = self.svc.files().list(
+            r = _execute_with_retry(self.svc.files().list(
                 q=f"'{parent_id}' in parents and trashed = false",
                 fields="nextPageToken, files(id, name, mimeType)",
                 pageSize=1000, pageToken=token,
-            ).execute()
+            ))
             out += r.get("files", [])
             token = r.get("nextPageToken")
             if not token:
@@ -51,10 +72,10 @@ class DriveClient:
 
     def find(self, name: str, parent_id: str) -> dict | None:
         safe = name.replace("\\", "\\\\").replace("'", "\\'")
-        r = self.svc.files().list(
+        r = _execute_with_retry(self.svc.files().list(
             q=f"name = '{safe}' and '{parent_id}' in parents and trashed = false",
             fields="files(id, name, mimeType)", pageSize=10,
-        ).execute()
+        ))
         files = r.get("files", [])
         return files[0] if files else None
 
@@ -63,7 +84,7 @@ class DriveClient:
         body = {"name": name, "mimeType": FOLDER_MIME}
         if parent_id:
             body["parents"] = [parent_id]
-        return self.svc.files().create(body=body, fields="id").execute()["id"]
+        return _execute_with_retry(self.svc.files().create(body=body, fields="id"))["id"]
 
     def get_or_create_folder(self, name: str, parent_id: str | None) -> str:
         if parent_id:
@@ -79,17 +100,28 @@ class DriveClient:
         from googleapiclient.http import MediaIoBaseUpload
         media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime, resumable=len(data) > 5_000_000)
         if file_id:
-            return self.svc.files().update(fileId=file_id, media_body=media, fields="id").execute()["id"]
-        return self.svc.files().create(
+            return _execute_with_retry(
+                self.svc.files().update(fileId=file_id, media_body=media, fields="id"))["id"]
+        return _execute_with_retry(self.svc.files().create(
             body={"name": name, "parents": [parent_id]}, media_body=media, fields="id"
-        ).execute()["id"]
+        ))["id"]
 
     # ---------- reads ----------
     def download_bytes(self, file_id: str) -> bytes:
         from googleapiclient.http import MediaIoBaseDownload
-        buf = io.BytesIO()
-        downloader = MediaIoBaseDownload(buf, self.svc.files().get_media(fileId=file_id))
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        return buf.getvalue()
+        # A chunked streaming download, not a single .execute() call - a
+        # flaky connection failing mid-way means restarting the whole
+        # download (these files are small masks/images, not large enough
+        # for partial-resume to matter), not patching one chunk.
+        for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
+            try:
+                buf = io.BytesIO()
+                downloader = MediaIoBaseDownload(buf, self.svc.files().get_media(fileId=file_id))
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                return buf.getvalue()
+            except _RETRYABLE:
+                if delay is None:
+                    raise
+                time.sleep(delay)

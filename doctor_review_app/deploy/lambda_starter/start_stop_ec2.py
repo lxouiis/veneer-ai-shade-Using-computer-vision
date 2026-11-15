@@ -36,11 +36,14 @@ def handler(event, context):
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {
-            "Content-Type": "application/json",
-            # start_page.html calls this from wherever it's hosted (S3) -
-            # needs CORS open since it's a different origin than this Lambda.
-            "Access-Control-Allow-Origin": "*",
-        },
+        # CORS is handled by the Function URL's own CORS config (set via
+        # `aws lambda create-function-url-config --cors ...`), not here -
+        # adding a second "Access-Control-Allow-Origin" header on top of
+        # that produces TWO such headers in the same response, which
+        # browsers reject outright as an invalid CORS response (the fetch()
+        # call in start_page.html fails client-side even though the request
+        # genuinely succeeded server-side - confirmed via curl showing a
+        # clean 200 with duplicate headers before this fix).
+        "headers": {"Content-Type": "application/json"},
         "body": json.dumps(body),
     }

@@ -1,5 +1,15 @@
 streamlit
 streamlit-drawable-canvas
+# Used for a touch/Apple Pencil-reliable alternative to the drag-based box
+# tool above - streamlit-drawable-canvas (fabric.js) has no documented
+# touch support and genuinely doesn't work with touch/pencil drag gestures
+# in practice (confirmed - touch-action CSS and a smaller canvas size both
+# failed to fix it). This library's default mode binds to a plain `onclick`
+# handler (confirmed by reading its frontend source), which browsers
+# reliably synthesize from a tap on any touchscreen - fundamentally
+# different and more reliable than canvas drag. Used in a two-tap
+# (not drag) mode for exactly that reason - see app.py's box_prompt stage.
+streamlit-image-coordinates
 # NOT pinning either of the above (two attempts at pinning this pairing both
 # made things worse - 1.38.0+0.9.3 broke on a removed internal Streamlit
 # function, an earlier 1.38.0-only attempt broke use_container_width). Back

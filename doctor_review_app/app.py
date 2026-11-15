@@ -9,6 +9,7 @@ import torch
 import cv2
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
+from streamlit_image_coordinates import streamlit_image_coordinates
 from PIL import Image
 
 from drive_client import DriveClient
@@ -449,14 +450,20 @@ def main():
 
     # ---- Stage: box_prompt (doctor draws a box, model reruns with it) ----
     elif st.session_state.stage == "box_prompt":
-        st.info("Draw a box around the tooth - click and drag one rectangle, "
-                "then tap Rerun.")
+        # Drag-based drawing (the canvas below) has no documented touch
+        # support and confirmed doesn't work reliably with touch/Apple
+        # Pencil in practice - neither touch-action CSS nor a smaller
+        # canvas fixed it. Tap mode sidesteps drag entirely: it's built on
+        # a plain `onclick` handler (confirmed by reading the library's own
+        # frontend source), which browsers reliably synthesize from a tap
+        # on any touchscreen - a fundamentally different, more reliable
+        # mechanism, not another guess on the same broken one.
+        input_mode = st.radio(
+            "How do you want to mark the box:",
+            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)"],
+            horizontal=True, key=f"box_mode_{filename}",
+        )
 
-        # A canvas stretched to fill most of a big screen is harder to
-        # control with a finger or Apple Pencil than a smaller, more
-        # contained one - this toggle shrinks it on request rather than
-        # always forcing the smaller size on everyone (mouse/trackpad users
-        # on a laptop aren't fighting the same problem).
         small_canvas = st.checkbox("Smaller canvas (easier for touch / Apple Pencil)",
                                    key="box_small_canvas")
         max_dim = 420 if small_canvas else CANVAS_MAX_DIM
@@ -466,37 +473,79 @@ def main():
         display_frame = cv2.resize(st.session_state.image_resized_uint8, (canvas_w, canvas_h),
                                    interpolation=cv2.INTER_AREA)
 
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 215, 0, 0.15)",
-            stroke_color="#ffd700",
-            stroke_width=2,
-            background_image=Image.fromarray(display_frame),
-            update_streamlit=True,
-            height=canvas_h,
-            width=canvas_w,
-            drawing_mode="rect",
-            key=f"box_canvas_{filename}",
-        )
+        if input_mode.startswith("🖱️"):
+            st.info("Draw a box around the tooth - click and drag one rectangle, "
+                    "then tap Rerun.")
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 215, 0, 0.15)",
+                stroke_color="#ffd700",
+                stroke_width=2,
+                background_image=Image.fromarray(display_frame),
+                update_streamlit=True,
+                height=canvas_h,
+                width=canvas_w,
+                drawing_mode="rect",
+                key=f"box_canvas_{filename}",
+            )
+            ready_box = rect_from_canvas(canvas_result)
+        else:
+            # Two taps, no dragging: first tap sets one corner, second tap
+            # sets the opposite corner. unix_time is compared against the
+            # last-processed tap so the SAME click isn't re-applied on every
+            # later rerun (the component keeps returning its last value).
+            if st.session_state.get("tap_box_filename") != filename:
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_filename = filename
+                st.session_state.tap_last_time = None
+
+            if st.session_state.tap_corner1 is None:
+                st.info("Tap one corner of the box around the tooth.")
+            else:
+                st.info("Now tap the opposite corner.")
+                cx, cy = st.session_state.tap_corner1
+                display_frame = cv2.circle(display_frame.copy(), (int(cx), int(cy)), 8, (255, 215, 0), -1)
+
+            coords = streamlit_image_coordinates(display_frame, key=f"tap_{filename}")
+            if coords and coords.get("unix_time") != st.session_state.tap_last_time:
+                st.session_state.tap_last_time = coords["unix_time"]
+                if st.session_state.tap_corner1 is None:
+                    st.session_state.tap_corner1 = (coords["x"], coords["y"])
+                    st.rerun()
+                else:
+                    x0, y0 = st.session_state.tap_corner1
+                    x1, y1 = coords["x"], coords["y"]
+                    st.session_state.tap_box_ready = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+                    st.rerun()
+
+            if st.button("Reset taps", use_container_width=True):
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_ready = None
+                st.rerun()
+
+            ready_box = st.session_state.get("tap_box_ready")
 
         rerun_col, cancel_col = st.columns(2)
         if rerun_col.button("Rerun with this box", type="primary", use_container_width=True):
-            rect = rect_from_canvas(canvas_result)
-            if rect is None:
-                st.warning("Draw a box first.")
+            if ready_box is None:
+                st.warning("Draw or tap a box first.")
             else:
-                # Canvas was shown scaled down from the 1024x1024 working
-                # frame - scale the box back up to that same space, which is
-                # exactly what the model expects as a prompt.
-                box = np.array([c / scale for c in rect], dtype=np.float32)
+                # Canvas/tap coords were shown scaled down from the
+                # 1024x1024 working frame - scale the box back up to that
+                # same space, which is exactly what the model expects.
+                box = np.array([c / scale for c in ready_box], dtype=np.float32)
                 new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
                 # Keep the old mask around so the comparison screen can show
                 # what changed - without this, overwriting predicted_mask
                 # straight away would mean there's nothing left to compare.
                 st.session_state.mask_before_rerun = mask
                 st.session_state.predicted_mask = new_mask
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_ready = None
                 st.session_state.stage = "box_result"
                 st.rerun()
         if cancel_col.button("Cancel", use_container_width=True):
+            st.session_state.tap_corner1 = None
+            st.session_state.tap_box_ready = None
             st.session_state.stage = "reviewing"
             st.rerun()
 

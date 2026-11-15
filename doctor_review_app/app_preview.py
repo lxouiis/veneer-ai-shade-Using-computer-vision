@@ -9,6 +9,7 @@ import numpy as np
 import cv2
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
+from streamlit_image_coordinates import streamlit_image_coordinates
 from PIL import Image
 
 MASK_OVERLAY_COLOR = (255, 0, 0)
@@ -181,30 +182,67 @@ def main():
             st.rerun()
 
     elif st.session_state.stage == "box_prompt":
-        st.info("Draw a box around the tooth - click and drag one rectangle, then tap Rerun.")
+        input_mode = st.radio(
+            "How do you want to mark the box:",
+            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)"],
+            horizontal=True, key=f"box_mode_{filename}",
+        )
         small_canvas = st.checkbox("Smaller canvas (easier for touch / Apple Pencil)",
                                    key="box_small_canvas")
         max_dim = 420 if small_canvas else CANVAS_MAX_DIM
         canvas_h, canvas_w, scale = scale_for_canvas(*original_image.shape[:2], max_dim=max_dim)
         display_frame = cv2.resize(original_image, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
 
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 215, 0, 0.15)",
-            stroke_color="#ffd700",
-            stroke_width=2,
-            background_image=Image.fromarray(display_frame),
-            update_streamlit=True,
-            height=canvas_h,
-            width=canvas_w,
-            drawing_mode="rect",
-            key=f"box_canvas_{filename}",
-        )
+        if input_mode.startswith("🖱️"):
+            st.info("Draw a box around the tooth - click and drag one rectangle, then tap Rerun.")
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 215, 0, 0.15)",
+                stroke_color="#ffd700",
+                stroke_width=2,
+                background_image=Image.fromarray(display_frame),
+                update_streamlit=True,
+                height=canvas_h,
+                width=canvas_w,
+                drawing_mode="rect",
+                key=f"box_canvas_{filename}",
+            )
+            ready_box = rect_from_canvas(canvas_result)
+        else:
+            if st.session_state.get("tap_box_filename") != filename:
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_filename = filename
+                st.session_state.tap_last_time = None
+
+            if st.session_state.tap_corner1 is None:
+                st.info("Tap one corner of the box around the tooth.")
+            else:
+                st.info("Now tap the opposite corner.")
+                cx, cy = st.session_state.tap_corner1
+                display_frame = cv2.circle(display_frame.copy(), (int(cx), int(cy)), 8, (255, 215, 0), -1)
+
+            coords = streamlit_image_coordinates(display_frame, key=f"tap_{filename}")
+            if coords and coords.get("unix_time") != st.session_state.tap_last_time:
+                st.session_state.tap_last_time = coords["unix_time"]
+                if st.session_state.tap_corner1 is None:
+                    st.session_state.tap_corner1 = (coords["x"], coords["y"])
+                    st.rerun()
+                else:
+                    x0, y0 = st.session_state.tap_corner1
+                    x1, y1 = coords["x"], coords["y"]
+                    st.session_state.tap_box_ready = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+                    st.rerun()
+
+            if st.button("Reset taps", use_container_width=True):
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_ready = None
+                st.rerun()
+
+            ready_box = st.session_state.get("tap_box_ready")
 
         rerun_col, cancel_col = st.columns(2)
         if rerun_col.button("Rerun with this box", type="primary", use_container_width=True):
-            rect = rect_from_canvas(canvas_result)
-            if rect is None:
-                st.warning("Draw a box first.")
+            if ready_box is None:
+                st.warning("Draw or tap a box first.")
             else:
                 # Preview has no real model - fake a visibly different mask
                 # (shifted oval) purely so the before/after screen has
@@ -213,9 +251,13 @@ def main():
                 shifted = make_fake_mask(original_image.shape)
                 shifted = np.roll(shifted, 40, axis=1)
                 st.session_state.predicted_mask = shifted
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_ready = None
                 st.session_state.stage = "box_result"
                 st.rerun()
         if cancel_col.button("Cancel", use_container_width=True):
+            st.session_state.tap_corner1 = None
+            st.session_state.tap_box_ready = None
             st.session_state.stage = "reviewing"
             st.rerun()
 

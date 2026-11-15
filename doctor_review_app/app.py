@@ -460,7 +460,8 @@ def main():
         # mechanism, not another guess on the same broken one.
         input_mode = st.radio(
             "How do you want to mark the box:",
-            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)"],
+            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)",
+             "🎚️ Adjust with sliders (most reliable on touch)"],
             horizontal=True, key=f"box_mode_{filename}",
         )
 
@@ -473,7 +474,30 @@ def main():
         display_frame = cv2.resize(st.session_state.image_resized_uint8, (canvas_w, canvas_h),
                                    interpolation=cv2.INTER_AREA)
 
-        if input_mode.startswith("🖱️"):
+        if input_mode.startswith("🎚️"):
+            # Native Streamlit sliders - standard HTML range inputs, not a
+            # third-party custom JS component. Guaranteed touch support on
+            # every mobile browser, unlike the canvas (drag sync to Python
+            # confirmed broken on touch) or the tap-coordinates component
+            # (second tap confirmed not registering). Less elegant than
+            # drawing directly, but doesn't depend on any touch-event
+            # handling we don't control.
+            st.info("Drag each slider with your finger to position the box, "
+                    "then tap Rerun.")
+            h_disp, w_disp = canvas_h, canvas_w
+            left_col, top_col = st.columns(2)
+            x0 = left_col.slider("Left edge", 0, w_disp, int(w_disp * 0.1), key=f"slider_x0_{filename}")
+            y0 = top_col.slider("Top edge", 0, h_disp, int(h_disp * 0.1), key=f"slider_y0_{filename}")
+            right_col, bottom_col = st.columns(2)
+            x1 = right_col.slider("Right edge", 0, w_disp, int(w_disp * 0.9), key=f"slider_x1_{filename}")
+            y1 = bottom_col.slider("Bottom edge", 0, h_disp, int(h_disp * 0.9), key=f"slider_y1_{filename}")
+
+            preview = display_frame.copy()
+            cv2.rectangle(preview, (min(x0, x1), min(y0, y1)), (max(x0, x1), max(y0, y1)), (255, 215, 0), 3)
+            st.image(preview, use_container_width=True)
+
+            ready_box = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+        elif input_mode.startswith("🖱️"):
             st.info("Draw a box around the tooth - click and drag one rectangle, "
                     "then tap Rerun.")
             canvas_result = st_canvas(

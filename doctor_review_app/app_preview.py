@@ -184,7 +184,8 @@ def main():
     elif st.session_state.stage == "box_prompt":
         input_mode = st.radio(
             "How do you want to mark the box:",
-            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)"],
+            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)",
+             "🎚️ Adjust with sliders (most reliable on touch)"],
             horizontal=True, key=f"box_mode_{filename}",
         )
         small_canvas = st.checkbox("Smaller canvas (easier for touch / Apple Pencil)",
@@ -193,7 +194,22 @@ def main():
         canvas_h, canvas_w, scale = scale_for_canvas(*original_image.shape[:2], max_dim=max_dim)
         display_frame = cv2.resize(original_image, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
 
-        if input_mode.startswith("🖱️"):
+        if input_mode.startswith("🎚️"):
+            st.info("Drag each slider with your finger to position the box, then tap Rerun.")
+            h_disp, w_disp = canvas_h, canvas_w
+            left_col, top_col = st.columns(2)
+            x0 = left_col.slider("Left edge", 0, w_disp, int(w_disp * 0.1), key=f"slider_x0_{filename}")
+            y0 = top_col.slider("Top edge", 0, h_disp, int(h_disp * 0.1), key=f"slider_y0_{filename}")
+            right_col, bottom_col = st.columns(2)
+            x1 = right_col.slider("Right edge", 0, w_disp, int(w_disp * 0.9), key=f"slider_x1_{filename}")
+            y1 = bottom_col.slider("Bottom edge", 0, h_disp, int(h_disp * 0.9), key=f"slider_y1_{filename}")
+
+            preview = display_frame.copy()
+            cv2.rectangle(preview, (min(x0, x1), min(y0, y1)), (max(x0, x1), max(y0, y1)), (255, 215, 0), 3)
+            st.image(preview, use_container_width=True)
+
+            ready_box = [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+        elif input_mode.startswith("🖱️"):
             st.info("Draw a box around the tooth - click and drag one rectangle, then tap Rerun.")
             canvas_result = st_canvas(
                 fill_color="rgba(255, 215, 0, 0.15)",

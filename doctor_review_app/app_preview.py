@@ -117,6 +117,10 @@ def load_image(index):
 
 def main():
     st.set_page_config(page_title="Tooth Mask Review (PREVIEW)", layout="wide")
+    st.markdown(
+        "<style>canvas { touch-action: none !important; }</style>",
+        unsafe_allow_html=True,
+    )
     st.title("Tooth Segmentation Review")
     st.caption("PREVIEW MODE - fake photos, nothing real is loaded or saved.")
 

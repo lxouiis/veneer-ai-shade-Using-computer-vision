@@ -328,6 +328,17 @@ def rect_from_canvas(canvas_result):
 # --------------------------------------------------------------------------
 def main():
     st.set_page_config(page_title="Tooth Mask Review", layout="wide")
+    # streamlit_drawable_canvas (fabric.js underneath) is a mouse-first,
+    # "best effort" library with no documented touch/stylus support - on a
+    # touchscreen, the browser's own default swipe-to-scroll/pinch-to-zoom
+    # gesture handling intercepts taps before the canvas's own drawing code
+    # ever sees them. touch-action: none tells the browser "don't treat
+    # touches on this element as a scroll/zoom gesture" - a common real fix
+    # for exactly this symptom, not guaranteed, but costs nothing to try.
+    st.markdown(
+        "<style>canvas { touch-action: none !important; }</style>",
+        unsafe_allow_html=True,
+    )
     st.title("Tooth Segmentation Review")
     st.caption("YOLO box + fine-tuned MedSAM (frozen encoder) - the same "
                "pipeline module_3 uses on Kaggle.")

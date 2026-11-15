@@ -56,10 +56,16 @@ MASK_OVERLAY_ALPHA = 0.4
 # stay visually distinguishable if anyone opens the raw PNG directly.
 MASK_CLASS_VALUES = {"background": 0, "anomaly": 85, "ignore": 170, "tooth": 255}
 # Canvas stroke colors per class - picked to be visually distinct from each
-# other and from typical tooth/gum photo colors, so decoding a drawn stroke
+# other AND from typical tooth/gum photo colors, so decoding a drawn stroke
 # back to a class by its RGB value (see decode_class_canvas) is unambiguous.
+# "tooth" was originally pure white, which is nearly invisible when drawn
+# on top of an actual (white) tooth - the whole point of drawing a stroke is
+# to SEE what you've marked, so it needs real contrast against the thing
+# it's labeling, not just uniqueness in RGB space.
 CLASS_STROKE_COLORS = {
-    "tooth": (255, 255, 255),      # white
+    "tooth": (0, 255, 0),          # bright green - matches CLASS_OVERLAY_COLORS
+                                    # below, and reads clearly against white
+                                    # enamel, pink gum, and skin tones alike
     "ignore": (255, 165, 0),       # orange
     "anomaly": (255, 0, 255),      # magenta
     "erase": (0, 0, 0),            # pure black - a dedicated "mark as
@@ -329,7 +335,15 @@ def main():
     medsam_model, yolo_model = load_models()
     client, images_folder_id, approved_folder_id, needs_review_folder_id = get_drive()
     image_list = get_image_list(client, images_folder_id)
-    reviews_db, _ = load_reviews_db(client)
+    # Loaded once per browser session, not re-fetched from Drive on every
+    # single click - Streamlit reruns this whole function on every
+    # interaction (moving a slider, switching the class radio, etc.), and
+    # most of those reruns have nothing to do with reviews.json at all.
+    # Updated in place after an actual save via save_review()'s return
+    # value, not by reloading from Drive again.
+    if "reviews_db" not in st.session_state:
+        st.session_state.reviews_db, _ = load_reviews_db(client)
+    reviews_db = st.session_state.reviews_db
 
     if not image_list:
         st.error("No images found in Drive's 'images' folder - run "
@@ -407,7 +421,7 @@ def main():
             mask_bytes = cv2.imencode(".png", (mask * 255).astype(np.uint8))[1].tobytes()
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
-            save_review(client, filename, "approved", file_id, doctor_shade)
+            st.session_state.reviews_db = save_review(client, filename, "approved", file_id, doctor_shade)
             _advance_after_review()
 
         if box_col.button("\U0001f4e6 Redraw the box", use_container_width=True,
@@ -610,17 +624,22 @@ def main():
             mask_bytes = cv2.imencode(".png", st.session_state.corrected_mask)[1].tobytes()
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
-            save_review(client, filename, "approved_after_edit", file_id, doctor_shade)
+            st.session_state.reviews_db = save_review(
+                client, filename, "approved_after_edit", file_id, doctor_shade)
             _advance_after_review()
 
         if no_col.button("No - still wrong, flag for review", use_container_width=True):
             flagged_bytes = cv2.imencode(".jpg", cv2.cvtColor(original_image, cv2.COLOR_RGB2BGR))[1].tobytes()
             client.upload_bytes(filename, needs_review_folder_id, flagged_bytes, "image/jpeg")
-            save_review(client, filename, "needs_review", doctor_shade=doctor_shade)
+            st.session_state.reviews_db = save_review(
+                client, filename, "needs_review", doctor_shade=doctor_shade)
             _advance_after_review()
 
     # ---- Progress ----
-    db, _ = load_reviews_db(client)
+    # Reuses the cached copy from earlier in this function - no need for a
+    # fresh Drive round trip just to count what's already in memory and
+    # correct as of the last save.
+    db = st.session_state.reviews_db
     st.sidebar.metric("Reviewed", f"{len(db)} / {len(image_list)}")
     approved = sum(1 for r in db.values() if r["status"] in ("approved", "approved_after_edit"))
     needs_review = sum(1 for r in db.values() if r["status"] == "needs_review")

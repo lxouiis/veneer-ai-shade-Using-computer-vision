@@ -22,7 +22,7 @@ NOT_SURE = "-- not sure / skip --"
 
 MASK_CLASS_VALUES = {"background": 0, "anomaly": 85, "ignore": 170, "tooth": 255}
 CLASS_STROKE_COLORS = {
-    "tooth": (255, 255, 255), "ignore": (255, 165, 0),
+    "tooth": (0, 255, 0), "ignore": (255, 165, 0),
     "anomaly": (255, 0, 255), "erase": (0, 0, 0),
 }
 CLASS_OVERLAY_COLORS = {"tooth": (0, 255, 0), "ignore": (255, 165, 0), "anomaly": (255, 0, 255)}

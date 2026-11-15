@@ -24,7 +24,7 @@
       height: 100vh;
       margin: 0;
     }
-    .card { text-align: center; max-width: 320px; }
+    .card { text-align: center; max-width: 420px; }
     button {
       font-size: 1.1rem;
       padding: 14px 32px;
@@ -36,6 +36,17 @@
     }
     button:disabled { opacity: 0.5; cursor: default; }
     #status { margin-top: 18px; color: #6e7887; font-size: 0.9rem; }
+    /* Only shown while actually waiting - boot-up genuinely takes 30-60+
+       seconds (longer on a cold first request while models load), so this
+       is something to actually look at instead of a static line of text. */
+    #catFrame {
+      display: none;
+      margin-top: 22px;
+      font-size: 0.75rem;
+      line-height: 1.15;
+      color: #5ac8b4;
+      white-space: pre;
+    }
   </style>
 </head>
 <body>
@@ -43,6 +54,7 @@
     <h2>Tooth Review Session</h2>
     <button id="startBtn">Start</button>
     <div id="status"></div>
+    <div id="catFrame"></div>
   </div>
 
   <script>
@@ -51,6 +63,35 @@
 
     const button = document.getElementById("startBtn");
     const statusEl = document.getElementById("status");
+    const catEl = document.getElementById("catFrame");
+
+    // A tiny 2-frame walk cycle - enough to feel alive without needing any
+    // external assets, a build step, or a browser extension (ASCII art is
+    // just text, so this is the whole "animation").
+    const CAT_FRAMES = [
+` /\\_/\\
+( o.o )
+ > ^ <`,
+` /\\_/\\
+( -.- )
+ > ^ <`,
+    ];
+    let catTimer = null;
+
+    function startCatAnimation() {
+      let i = 0;
+      catEl.style.display = "block";
+      catEl.textContent = CAT_FRAMES[0];
+      catTimer = setInterval(() => {
+        i = (i + 1) % CAT_FRAMES.length;
+        catEl.textContent = CAT_FRAMES[i];
+      }, 600);
+    }
+
+    function stopCatAnimation() {
+      clearInterval(catTimer);
+      catEl.style.display = "none";
+    }
 
     button.onclick = async () => {
       button.disabled = true;
@@ -63,6 +104,7 @@
         return;
       }
       statusEl.textContent = "Booting up - this usually takes under a minute...";
+      startCatAnimation();
       pollUntilReady();
     };
 
@@ -74,6 +116,7 @@
         try {
           await fetch(APP_URL, { mode: "no-cors" });
           clearInterval(interval);
+          stopCatAnimation();
           window.location.href = APP_URL;
         } catch (e) {
           // not ready yet - keep polling

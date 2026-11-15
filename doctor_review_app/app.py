@@ -501,9 +501,17 @@ def main():
             if st.session_state.tap_corner1 is None:
                 st.info("Tap one corner of the box around the tooth.")
             else:
-                st.info("Now tap the opposite corner.")
                 cx, cy = st.session_state.tap_corner1
-                display_frame = cv2.circle(display_frame.copy(), (int(cx), int(cy)), 8, (255, 215, 0), -1)
+                st.info(f"Corner 1 set at ({cx}, {cy}) - now tap the opposite corner.")
+                # Deliberately NOT redrawing a marker onto the image here -
+                # that would change the image's encoded bytes, forcing the
+                # <img> element to reload between the two taps. If the
+                # second real tap lands while that reload/rebind is
+                # happening, it can get swallowed - exactly the "first tap
+                # works, second tap doesn't" symptom seen in testing. Same
+                # unchanged image across both taps avoids that reload
+                # entirely; the corner's coordinates are shown as plain
+                # text above instead of as a visual marker on the photo.
 
             coords = streamlit_image_coordinates(display_frame, key=f"tap_{filename}")
             if coords and coords.get("unix_time") != st.session_state.tap_last_time:

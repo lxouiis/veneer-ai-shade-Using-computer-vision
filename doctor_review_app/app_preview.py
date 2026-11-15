@@ -216,9 +216,11 @@ def main():
             if st.session_state.tap_corner1 is None:
                 st.info("Tap one corner of the box around the tooth.")
             else:
-                st.info("Now tap the opposite corner.")
                 cx, cy = st.session_state.tap_corner1
-                display_frame = cv2.circle(display_frame.copy(), (int(cx), int(cy)), 8, (255, 215, 0), -1)
+                st.info(f"Corner 1 set at ({cx}, {cy}) - now tap the opposite corner.")
+                # Not redrawing a marker onto the image - that would change
+                # its encoded bytes and force a reload between taps, which
+                # could swallow a fast second tap.
 
             coords = streamlit_image_coordinates(display_frame, key=f"tap_{filename}")
             if coords and coords.get("unix_time") != st.session_state.tap_last_time:

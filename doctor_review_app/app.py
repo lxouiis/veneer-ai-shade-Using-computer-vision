@@ -722,38 +722,21 @@ def main():
                            disabled=not st.session_state.editing_undo_stack):
             st.session_state.editing_class_mask = st.session_state.editing_undo_stack.pop()
             st.rerun()
-        if done_col.button("Done - review result", type="primary", use_container_width=True):
-            st.session_state.corrected_mask = st.session_state.editing_class_mask
-            st.session_state.stage = "confirming"
-            st.rerun()
-        if cancel_col.button("Cancel", use_container_width=True):
-            st.session_state.stage = "reviewing"
-            st.rerun()
-
-    # ---- Stage: confirming (is the corrected mask now right?) ----
-    elif st.session_state.stage == "confirming":
-        st.image(
-            overlay_class_mask(original_image, st.session_state.corrected_mask),
-            caption="Corrected mask (green=tooth, orange=ignore, magenta=anomaly)",
-            use_container_width=True,
-        )
-        st.write("Is this corrected mask now accurate?")
-        yes_col, no_col = st.columns(2)
-
-        if yes_col.button("Yes - looks correct now", type="primary", use_container_width=True):
-            mask_bytes = cv2.imencode(".png", st.session_state.corrected_mask)[1].tobytes()
+        if done_col.button("Done - save as final", type="primary", use_container_width=True):
+            # Her hand-drawn mark IS the ground truth once she taps this -
+            # saved directly, no separate "are you sure?" screen in
+            # between. She already reviewed it while drawing; a second
+            # confirmation step on top of that was redundant friction, not
+            # a real safeguard.
+            mask_bytes = cv2.imencode(".png", st.session_state.editing_class_mask)[1].tobytes()
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
             st.session_state.reviews_db = save_review(
                 client, filename, "approved_after_edit", file_id, doctor_shade)
             _advance_after_review()
-
-        if no_col.button("No - still wrong, flag for review", use_container_width=True):
-            flagged_bytes = cv2.imencode(".jpg", cv2.cvtColor(original_image, cv2.COLOR_RGB2BGR))[1].tobytes()
-            client.upload_bytes(filename, needs_review_folder_id, flagged_bytes, "image/jpeg")
-            st.session_state.reviews_db = save_review(
-                client, filename, "needs_review", doctor_shade=doctor_shade)
-            _advance_after_review()
+        if cancel_col.button("Cancel", use_container_width=True):
+            st.session_state.stage = "reviewing"
+            st.rerun()
 
     # ---- Progress ----
     # Reuses the cached copy from earlier in this function - no need for a

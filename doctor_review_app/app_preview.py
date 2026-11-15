@@ -389,28 +389,13 @@ def main():
                            disabled=not st.session_state.editing_undo_stack):
             st.session_state.editing_class_mask = st.session_state.editing_undo_stack.pop()
             st.rerun()
-        if done_col.button("Done - review result", type="primary", use_container_width=True):
-            st.session_state.corrected_mask = st.session_state.editing_class_mask
-            st.session_state.stage = "confirming"
-            st.rerun()
+        if done_col.button("Done - save as final", type="primary", use_container_width=True):
+            st.session_state.statuses[filename] = "approved"
+            st.success("(Preview) Would upload the mask directly as final - no extra confirm step.")
+            st.session_state.stage = "reviewing"
         if cancel_col.button("Cancel", use_container_width=True):
             st.session_state.stage = "reviewing"
             st.rerun()
-
-    elif st.session_state.stage == "confirming":
-        st.image(overlay_class_mask(original_image, st.session_state.corrected_mask),
-                 caption="Corrected mask (green=tooth, orange=ignore, magenta=anomaly)",
-                 use_container_width=True)
-        st.write("Is this corrected mask now accurate?")
-        yes_col, no_col = st.columns(2)
-        if yes_col.button("Yes - looks correct now", type="primary", use_container_width=True):
-            st.session_state.statuses[filename] = "approved"
-            st.success("(Preview) Would upload the corrected mask and mark this approved.")
-            st.session_state.stage = "reviewing"
-        if no_col.button("No - still wrong, flag for review", use_container_width=True):
-            st.session_state.statuses[filename] = "needs_review"
-            st.warning("(Preview) Would flag this image for review.")
-            st.session_state.stage = "reviewing"
 
     approved = sum(1 for s in st.session_state.statuses.values() if s == "approved")
     needs_review = sum(1 for s in st.session_state.statuses.values() if s == "needs_review")

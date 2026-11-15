@@ -92,8 +92,8 @@ def view_window(h, w, zoom, cx, cy):
     return x0, y0, x0 + cw, y0 + ch
 
 
-def scale_for_canvas(h, w):
-    scale = min(1.0, CANVAS_MAX_DIM / max(h, w))
+def scale_for_canvas(h, w, max_dim=CANVAS_MAX_DIM):
+    scale = min(1.0, max_dim / max(h, w))
     return int(h * scale), int(w * scale), scale
 
 
@@ -182,7 +182,10 @@ def main():
 
     elif st.session_state.stage == "box_prompt":
         st.info("Draw a box around the tooth - click and drag one rectangle, then tap Rerun.")
-        canvas_h, canvas_w, scale = scale_for_canvas(*original_image.shape[:2])
+        small_canvas = st.checkbox("Smaller canvas (easier for touch / Apple Pencil)",
+                                   key="box_small_canvas")
+        max_dim = 420 if small_canvas else CANVAS_MAX_DIM
+        canvas_h, canvas_w, scale = scale_for_canvas(*original_image.shape[:2], max_dim=max_dim)
         display_frame = cv2.resize(original_image, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
 
         canvas_result = st_canvas(
@@ -273,12 +276,16 @@ def main():
         st.image(overlay_class_mask(original_image, st.session_state.editing_class_mask),
                  caption="Current progress (zoomed-out overview)", use_container_width=True)
 
+        small_canvas = st.checkbox("Smaller canvas (easier for touch / Apple Pencil)",
+                                   key="edit_small_canvas")
+        max_dim = 420 if small_canvas else CANVAS_MAX_DIM
+
         zoom = st.session_state.editing_zoom
         cx, cy = st.session_state.editing_cx, st.session_state.editing_cy
         x0, y0, x1, y1 = view_window(h, w, zoom, cx, cy)
         crop = original_image[y0:y1, x0:x1]
         crop_h, crop_w = crop.shape[:2]
-        canvas_h, canvas_w, _ = scale_for_canvas(crop_h, crop_w)
+        canvas_h, canvas_w, _ = scale_for_canvas(crop_h, crop_w, max_dim=max_dim)
         display_crop = cv2.resize(crop, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
 
         canvas_result = st_canvas(

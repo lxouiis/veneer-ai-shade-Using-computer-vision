@@ -12,6 +12,7 @@ from streamlit_drawable_canvas import st_canvas
 from streamlit_image_coordinates import streamlit_image_coordinates
 from PIL import Image
 
+from box_draw_component import box_draw_component
 from drive_client import DriveClient
 
 # module_3 is a sibling folder, not an installed package - import its real
@@ -460,7 +461,8 @@ def main():
         # mechanism, not another guess on the same broken one.
         input_mode = st.radio(
             "How do you want to mark the box:",
-            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)",
+            ["✏️ Draw directly (new - try this on touch/Pencil)",
+             "🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)",
              "🎚️ Adjust with sliders (most reliable on touch)"],
             horizontal=True, key=f"box_mode_{filename}",
         )
@@ -474,7 +476,19 @@ def main():
         display_frame = cv2.resize(st.session_state.image_resized_uint8, (canvas_w, canvas_h),
                                    interpolation=cv2.INTER_AREA)
 
-        if input_mode.startswith("🎚️"):
+        if input_mode.startswith("✏️"):
+            # Our own component, built from scratch on the Pointer Events
+            # API (pointerdown/move/up) - a standard that unifies mouse,
+            # touch, and pen input into ONE event model, unlike
+            # streamlit-drawable-canvas's mouse-only sync-back (confirmed
+            # broken on touch: box_prompt.py notes.md and today's testing -
+            # the drawn shape renders but never reaches Python). This is
+            # the real, direct fix rather than a workaround.
+            st.info("Draw a box directly on the photo with your finger, "
+                    "pencil, or mouse - then tap Rerun.")
+            result = box_draw_component(display_frame, key=f"box_draw_{filename}")
+            ready_box = [result["x1"], result["y1"], result["x2"], result["y2"]] if result else None
+        elif input_mode.startswith("🎚️"):
             # Native Streamlit sliders - standard HTML range inputs, not a
             # third-party custom JS component. Guaranteed touch support on
             # every mobile browser, unlike the canvas (drag sync to Python

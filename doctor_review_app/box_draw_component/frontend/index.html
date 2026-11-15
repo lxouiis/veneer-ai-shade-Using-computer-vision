@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 0; overflow: hidden; }
+  #wrap { position: relative; }
+  #bg { position: absolute; top: 0; left: 0; display: block; }
+  #draw {
+    position: absolute; top: 0; left: 0;
+    /* The single most important line for touch/pen support - tells the
+       browser not to treat drags on this element as a scroll/zoom gesture,
+       applied correctly from the start on an element we fully control,
+       rather than retrofitted onto a third-party component's internals. */
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <img id="bg" />
+    <canvas id="draw"></canvas>
+  </div>
+  <script src="./streamlit-component-lib.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>

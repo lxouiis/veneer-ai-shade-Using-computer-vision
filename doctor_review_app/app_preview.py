@@ -12,6 +12,8 @@ from streamlit_drawable_canvas import st_canvas
 from streamlit_image_coordinates import streamlit_image_coordinates
 from PIL import Image
 
+from box_draw_component import box_draw_component
+
 MASK_OVERLAY_COLOR = (255, 0, 0)
 MASK_OVERLAY_ALPHA = 0.4
 BRUSH_SIZE = 12
@@ -184,7 +186,8 @@ def main():
     elif st.session_state.stage == "box_prompt":
         input_mode = st.radio(
             "How do you want to mark the box:",
-            ["🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)",
+            ["✏️ Draw directly (new - try this on touch/Pencil)",
+             "🖱️ Drag a rectangle (mouse / trackpad)", "👆 Tap two corners (touch / Apple Pencil)",
              "🎚️ Adjust with sliders (most reliable on touch)"],
             horizontal=True, key=f"box_mode_{filename}",
         )
@@ -194,7 +197,11 @@ def main():
         canvas_h, canvas_w, scale = scale_for_canvas(*original_image.shape[:2], max_dim=max_dim)
         display_frame = cv2.resize(original_image, (canvas_w, canvas_h), interpolation=cv2.INTER_AREA)
 
-        if input_mode.startswith("🎚️"):
+        if input_mode.startswith("✏️"):
+            st.info("Draw a box directly on the photo with your finger, pencil, or mouse - then tap Rerun.")
+            result = box_draw_component(display_frame, key=f"box_draw_{filename}")
+            ready_box = [result["x1"], result["y1"], result["x2"], result["y2"]] if result else None
+        elif input_mode.startswith("🎚️"):
             st.info("Drag each slider with your finger to position the box, then tap Rerun.")
             h_disp, w_disp = canvas_h, canvas_w
             left_col, top_col = st.columns(2)

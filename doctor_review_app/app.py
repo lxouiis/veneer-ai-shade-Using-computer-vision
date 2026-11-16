@@ -4,6 +4,7 @@ import json
 import time
 import tempfile
 import urllib.request
+from collections import OrderedDict
 import numpy as np
 import torch
 import cv2
@@ -113,6 +114,79 @@ NOT_SURE = "-- not sure / skip --"
 # button just doesn't appear - the app still works fine without it, e.g. for
 # local testing where there's no EC2 instance to stop at all.
 LAMBDA_STARTER_URL = os.environ.get("LAMBDA_STARTER_URL")
+
+# --------------------------------------------------------------------------
+# PREDICTION CACHING (two layers, so revisiting a photo - via Previous/Next,
+# or a whole new session days later - never re-pays the Drive download +
+# full YOLO/MedSAM CPU inference for a photo already processed before).
+#
+# Layer 1 (session, in RAM): keyed by filename, holds the actual numpy
+# arrays/tensor so a Previous/Next bounce within THIS browser session is
+# instant - no Drive call, no inference, just a dict read. Capped so a long
+# session reviewing hundreds of photos can't grow this unbounded; oldest
+# entry is dropped first (classic LRU), since what matters is "the last N
+# photos she was looking at," not every photo ever opened this session.
+#
+# Layer 2 (disk, on the EC2 box): keyed by filename, holds the downloaded
+# image bytes + computed mask as plain files under CACHE_DIR. Survives a
+# server restart/redeploy and a brand new session days later - the gap
+# Layer 1 alone leaves open. On a disk-cache hit we still re-run
+# preprocess_image (cheap resize/tensor-conversion) on the cached bytes
+# rather than caching the tensor itself, so box-redraw still has a correct
+# tensor to work with - only the Drive download and the expensive
+# YOLO+MedSAM inference are actually skipped.
+# --------------------------------------------------------------------------
+SESSION_CACHE_MAX = 30
+CACHE_DIR = os.environ.get("PREDICTION_CACHE_DIR", "/tmp/tooth_review_cache")
+
+
+def _session_cache():
+    if "prediction_cache" not in st.session_state:
+        st.session_state.prediction_cache = OrderedDict()
+    return st.session_state.prediction_cache
+
+
+def get_from_session_cache(filename):
+    cache = _session_cache()
+    if filename not in cache:
+        return None
+    cache.move_to_end(filename)  # mark as most-recently-used
+    return cache[filename]
+
+
+def put_in_session_cache(filename, data):
+    cache = _session_cache()
+    cache[filename] = data
+    cache.move_to_end(filename)
+    while len(cache) > SESSION_CACHE_MAX:
+        cache.popitem(last=False)  # drop the least-recently-used entry
+
+
+def _disk_cache_paths(filename):
+    safe_name = filename.replace("/", "_")
+    image_path = os.path.join(CACHE_DIR, "images", safe_name)
+    mask_path = os.path.join(CACHE_DIR, "masks", safe_name + ".npy")
+    return image_path, mask_path
+
+
+def load_from_disk_cache(filename):
+    image_path, mask_path = _disk_cache_paths(filename)
+    if not os.path.exists(image_path):
+        return None, None
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+    mask = np.load(mask_path) if os.path.exists(mask_path) else None
+    return image_bytes, mask
+
+
+def save_to_disk_cache(filename, image_bytes, mask):
+    image_path, mask_path = _disk_cache_paths(filename)
+    os.makedirs(os.path.dirname(image_path), exist_ok=True)
+    os.makedirs(os.path.dirname(mask_path), exist_ok=True)
+    if not os.path.exists(image_path):
+        with open(image_path, "wb") as f:
+            f.write(image_bytes)
+    np.save(mask_path, mask)
 
 
 # --------------------------------------------------------------------------
@@ -372,10 +446,47 @@ def main():
 
     if "last_prediction_filename" not in st.session_state or \
             st.session_state.last_prediction_filename != filename:
-        image_bytes = client.download_bytes(image_entry["id"])
-        image_tensor, image_resized_uint8, original_image, mask = predict_mask(
-            image_bytes, filename, medsam_model, yolo_model
-        )
+        cached = get_from_session_cache(filename)
+        if cached is not None:
+            # Layer 1 hit - already in RAM from earlier this session
+            # (a Previous/Next bounce). No Drive call, no inference.
+            image_tensor, image_resized_uint8, original_image, mask = cached
+        else:
+            disk_image_bytes, disk_mask = load_from_disk_cache(filename)
+            if disk_image_bytes is not None:
+                # Layer 2 hit - downloaded/computed in an earlier session.
+                # Drive download is skipped; preprocess_image is still run
+                # (cheap resize/tensor-conversion) so a later box-redraw has
+                # a real tensor to work with, but inference itself is
+                # skipped whenever the mask was cached too.
+                image_bytes = disk_image_bytes
+                suffix = os.path.splitext(filename)[1] or ".jpg"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    tmp.write(image_bytes)
+                    tmp_path = tmp.name
+                try:
+                    image_tensor, original_image, image_resized_uint8 = preprocess_image(tmp_path)
+                finally:
+                    os.remove(tmp_path)
+                if disk_mask is not None:
+                    mask = disk_mask
+                else:
+                    bbox = None
+                    if yolo_model is not None:
+                        bbox = get_bbox_prompt_yolo(image_resized_uint8, yolo_model)
+                    if bbox is None:
+                        bbox = get_bbox_prompt(image_tensor.shape[-2:])
+                    mask = run_inference(medsam_model, image_tensor, bbox)
+                    save_to_disk_cache(filename, image_bytes, mask)
+            else:
+                # Full miss - never seen this photo before in any cache.
+                image_bytes = client.download_bytes(image_entry["id"])
+                image_tensor, image_resized_uint8, original_image, mask = predict_mask(
+                    image_bytes, filename, medsam_model, yolo_model
+                )
+                save_to_disk_cache(filename, image_bytes, mask)
+            put_in_session_cache(filename, (image_tensor, image_resized_uint8, original_image, mask))
+
         st.session_state.image_tensor = image_tensor
         st.session_state.image_resized_uint8 = image_resized_uint8
         st.session_state.original_image = original_image
@@ -585,6 +696,13 @@ def main():
                 # straight away would mean there's nothing left to compare.
                 st.session_state.mask_before_rerun = mask
                 st.session_state.predicted_mask = new_mask
+                put_in_session_cache(filename, (
+                    st.session_state.image_tensor, st.session_state.image_resized_uint8,
+                    original_image, new_mask,
+                ))
+                _, cached_mask_path = _disk_cache_paths(filename)
+                if os.path.exists(os.path.dirname(cached_mask_path)):
+                    np.save(cached_mask_path, new_mask)  # keep disk cache in sync with her correction
                 st.session_state.tap_corner1 = None
                 st.session_state.tap_box_ready = None
                 st.session_state.stage = "box_result"

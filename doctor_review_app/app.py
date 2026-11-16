@@ -856,6 +856,24 @@ def main():
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
             st.session_state.reviews_db = save_review(
                 client, filename, "approved_after_edit", file_id, doctor_shade)
+            # Keep the in-session/disk-cached mask in sync with what was
+            # just saved - without this, "What the model sees" would keep
+            # showing the stale ORIGINAL prediction if she revisits this
+            # photo later, even though her hand-edit is already the real
+            # saved answer in Drive. overlay_mask() expects a plain
+            # tooth/not-tooth mask, so collapse the 4-class edit down to
+            # just the tooth class for that view - the class detail itself
+            # still lives in the saved _mask.png, this is only the display
+            # cache.
+            tooth_only_mask = (st.session_state.editing_class_mask == MASK_CLASS_VALUES["tooth"]).astype(np.uint8)
+            st.session_state.predicted_mask = tooth_only_mask
+            put_in_session_cache(filename, (
+                st.session_state.image_tensor, st.session_state.image_resized_uint8,
+                original_image, tooth_only_mask,
+            ))
+            _, cached_mask_path = _disk_cache_paths(filename)
+            if os.path.exists(os.path.dirname(cached_mask_path)):
+                np.save(cached_mask_path, tooth_only_mask)
             _advance_after_review()
         if cancel_col.button("Cancel", use_container_width=True):
             st.session_state.stage = "reviewing"

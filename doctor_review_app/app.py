@@ -810,6 +810,11 @@ def main():
             height=canvas_h,
             width=canvas_w,
             drawing_mode="freedraw",
+            # A newer streamlit-drawable-canvas release stopped returning
+            # image_data by default (RuntimeError: "image_data was not
+            # requested") - decode_class_canvas() below needs the raw pixel
+            # data, not just json_data, so it has to be explicitly opted in.
+            return_image_data=True,
             key=f"edit_canvas_{filename}_{zoom}_{cx}_{cy}",
         )
 

@@ -803,11 +803,22 @@ def main():
             # one, etc., not just the final combined blob with no way to
             # tell which box contributed what.
             st.write(f"You marked {len(per_box_masks)} boxes - here's what each one found:")
-            box_cols = st.columns(len(per_box_masks))
-            for i, (col, box_mask) in enumerate(zip(box_cols, per_box_masks)):
-                with col:
-                    st.image(overlay_mask(original_image, box_mask),
-                             caption=f"Box {i + 1}", use_container_width=True)
+            # A single row stretched across however many boxes there are
+            # squeezes each image unreadably thin once she marks 5-6+ for a
+            # full arch (Streamlit splits the row width evenly, no matter
+            # how many columns). Wrapping into rows keeps each image a
+            # sane size regardless of box count. Reuses the SAME "Smaller
+            # canvas" checkbox she already toggles on the drawing screen,
+            # rather than adding a second control for the same idea - she's
+            # already told us whether she wants bigger/fewer-per-row images.
+            per_row = 2 if st.session_state.get("box_small_canvas") else 3
+            for row_start in range(0, len(per_box_masks), per_row):
+                row_masks = per_box_masks[row_start:row_start + per_row]
+                box_cols = st.columns(len(row_masks))
+                for i, (col, box_mask) in enumerate(zip(box_cols, row_masks)):
+                    with col:
+                        st.image(overlay_mask(original_image, box_mask),
+                                 caption=f"Box {row_start + i + 1}", use_container_width=True)
             st.write("Combined into one final mask:")
 
         st.write("Here's the result before and after your box(es).")

@@ -232,6 +232,55 @@ def run_inference(model, image_tensor, bbox):
     return mask
 
 
+def run_inference_multi_box(model, image_tensor, boxes):
+    """Same idea as run_inference, but for several boxes on ONE photo (e.g.
+    covering multiple separate teeth), merged into one mask - without paying
+    for the image encoder more than once.
+
+    model.image_encoder(image_tensor) is a full ViT forward pass over the
+    whole image and is essentially all of run_inference's CPU cost; it
+    doesn't depend on the box at all, only on the photo. prompt_encoder and
+    mask_decoder are the cheap, box-specific steps. Running the encoder once
+    and looping only the cheap per-box steps - instead of calling
+    run_inference once per box - is what keeps N boxes from costing N times
+    as much as one.
+
+    Returns (combined_mask, per_box_masks) - per_box_masks is each box's OWN
+    mask before merging, same order as `boxes`, so a caller can show "this
+    box found this region" individually, not just the final union."""
+    image_tensor = image_tensor.to(DEVICE)
+    combined_mask = None
+    per_box_masks = []
+
+    with torch.no_grad():
+        image_embedding = model.image_encoder(image_tensor)  # paid once, shared by every box
+        for box in boxes:
+            box_torch = torch.as_tensor(box, dtype=torch.float32, device=DEVICE).view(1, 1, 4)
+            sparse_embeddings, dense_embeddings = model.prompt_encoder(
+                points=None, boxes=box_torch, masks=None,
+            )
+            low_res_masks, _ = model.mask_decoder(
+                image_embeddings=image_embedding,
+                image_pe=model.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=False,
+            )
+            upsampled = F.interpolate(
+                low_res_masks, size=image_tensor.shape[-2:], mode="bilinear", align_corners=False
+            )
+            mask = (torch.sigmoid(upsampled).squeeze().cpu().numpy() > MASK_THRESHOLD).astype(np.uint8)
+            if ENABLE_MASK_CLEANUP:
+                mask = cleanup_mask(mask)
+            per_box_masks.append(mask)
+            # Union, not overwrite - each box contributes its own region to
+            # one combined tooth mask, same as drawing several strokes on
+            # the hand-edit canvas.
+            combined_mask = mask if combined_mask is None else np.maximum(combined_mask, mask)
+
+    return combined_mask, per_box_masks
+
+
 # --------------------------------------------------------------------------
 # TOOTH CROP EXTRACTION
 # --------------------------------------------------------------------------

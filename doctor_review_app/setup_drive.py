@@ -17,9 +17,20 @@ to any file here - copy them from the terminal output.
 
 Scope is drive.file: the app can only see files/folders IT creates, never
 your whole Drive - same scope the existing CVD_Annotator tool uses.
+
+Re-running this later (e.g. to rotate an expired refresh token) does NOT
+reuse the original root folder automatically - a fresh OAuth grant can't
+find it by name-search even for the same Google account, and silently
+creates a second, empty "tooth_shade_review" folder instead (confirmed the
+hard way: this happened twice in production). Pass the EXISTING
+GDRIVE_ROOT_ID as this script's one argument when you're just rotating the
+token, and it'll reuse that folder directly by ID instead of searching/
+creating a new one:
+    python setup_drive.py 1sA_ZCBIbCNLOUdTah5RPkmpf8TReN2qU
 """
 import json
 import os
+import sys
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from drive_client import DriveClient, SCOPES
@@ -35,6 +46,8 @@ def main():
             f"how to create one in Google Cloud Console first."
         )
 
+    existing_root_id = sys.argv[1] if len(sys.argv) > 1 else None
+
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_PATH, SCOPES)
     creds = flow.run_local_server(port=0)
 
@@ -46,18 +59,27 @@ def main():
     os.environ["GDRIVE_REFRESH_TOKEN"] = creds.refresh_token
 
     client = DriveClient.from_env()
-    root_id = client.get_or_create_folder(ROOT_FOLDER_NAME, parent_id=None)
-    client.get_or_create_folder("images", parent_id=root_id)
-    client.get_or_create_folder("approved_masks", parent_id=root_id)
-    client.get_or_create_folder("needs_review", parent_id=root_id)
+    if existing_root_id:
+        # Reuse directly by ID - confirmed working even when a fresh OAuth
+        # grant can't find the same folder via a name search. Doesn't touch
+        # or recreate the images/approved_masks/needs_review subfolders
+        # either, since they already exist under it.
+        root_id = existing_root_id
+        print(f"\nReusing existing root folder ({root_id}) - not creating a new one.")
+    else:
+        root_id = client.get_or_create_folder(ROOT_FOLDER_NAME, parent_id=None)
+        client.get_or_create_folder("images", parent_id=root_id)
+        client.get_or_create_folder("approved_masks", parent_id=root_id)
+        client.get_or_create_folder("needs_review", parent_id=root_id)
 
     print("\nSetup complete. Paste these into Streamlit Secrets (or a local .env):\n")
     print(f'GDRIVE_CLIENT_ID = "{client_config["client_id"]}"')
     print(f'GDRIVE_CLIENT_SECRET = "{client_config["client_secret"]}"')
     print(f'GDRIVE_REFRESH_TOKEN = "{creds.refresh_token}"')
     print(f'GDRIVE_ROOT_ID = "{root_id}"')
-    print(f"\nUpload the dataset images to the '{ROOT_FOLDER_NAME}/images' "
-          f"folder in Drive before running app.py.")
+    if not existing_root_id:
+        print(f"\nUpload the dataset images to the '{ROOT_FOLDER_NAME}/images' "
+              f"folder in Drive before running app.py.")
 
 
 if __name__ == "__main__":

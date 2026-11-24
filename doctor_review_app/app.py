@@ -30,6 +30,7 @@ from infer import (  # noqa: E402
     get_bbox_prompt_yolo,
     get_bbox_prompt,
     run_inference,
+    run_inference_multi_box,
 )
 
 # --------------------------------------------------------------------------
@@ -215,7 +216,7 @@ def load_reviews_db(client):
     return json.loads(data), existing["id"]
 
 
-def save_review(client, filename, status, mask_file_id=None, doctor_shade=None):
+def save_review(client, filename, status, mask_file_id=None, doctor_shade=None, corrected_boxes=None):
     db, reviews_file_id = load_reviews_db(client)
     db[filename] = {
         "status": status,  # "approved" | "approved_after_edit" | "needs_review"
@@ -225,6 +226,13 @@ def save_review(client, filename, status, mask_file_id=None, doctor_shade=None):
         # None means she didn't pick one (left on "not sure / skip") -
         # distinct from an actual answer, not treated as a guess either way.
         "doctor_shade": doctor_shade,
+        # Her hand-drawn box(es) for this photo, in the same 1024x1024
+        # working-frame coordinates the model itself uses - None if she
+        # never redrew a box (approved YOLO's own guess as-is). This is
+        # real, human-verified box ground truth for this photo - exactly
+        # what a future YOLO fine-tuning pass needs, instead of only ever
+        # training on YOLO's own (possibly wrong) predictions.
+        "corrected_boxes": corrected_boxes,
         "reviewed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     payload = json.dumps(db, indent=2).encode("utf-8")
@@ -308,6 +316,12 @@ def predict_mask(image_bytes, filename, medsam_model, yolo_model):
 
 def rerun_with_box(medsam_model, image_tensor, box):
     return run_inference(medsam_model, image_tensor, box)
+
+
+def rerun_with_boxes(medsam_model, image_tensor, boxes):
+    # One shared image_encoder pass for however many boxes she drew, not one
+    # pass per box - see run_inference_multi_box's docstring in infer.py.
+    return run_inference_multi_box(medsam_model, image_tensor, boxes)
 
 
 def overlay_mask(image, mask):
@@ -492,6 +506,12 @@ def main():
         st.session_state.original_image = original_image
         st.session_state.predicted_mask = mask
         st.session_state.last_prediction_filename = filename
+        # A fresh photo means no box correction has happened for THIS photo
+        # yet - without resetting these, approving a photo she never
+        # redrew a box on could incorrectly inherit box data left over from
+        # whatever photo she corrected previously in the same session.
+        st.session_state.last_boxes_used = None
+        st.session_state.per_box_masks_result = None
         st.session_state.stage = "reviewing"
 
     original_image = st.session_state.original_image
@@ -545,7 +565,9 @@ def main():
             mask_bytes = cv2.imencode(".png", (mask * 255).astype(np.uint8))[1].tobytes()
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
-            st.session_state.reviews_db = save_review(client, filename, "approved", file_id, doctor_shade)
+            st.session_state.reviews_db = save_review(
+                client, filename, "approved", file_id, doctor_shade,
+                corrected_boxes=st.session_state.get("last_boxes_used"))
             _advance_after_review()
 
         if box_col.button("\U0001f4e6 Redraw the box", use_container_width=True,
@@ -586,6 +608,23 @@ def main():
             *st.session_state.image_resized_uint8.shape[:2], max_dim=max_dim)
         display_frame = cv2.resize(st.session_state.image_resized_uint8, (canvas_w, canvas_h),
                                    interpolation=cv2.INTER_AREA)
+
+        # A running list of boxes for THIS photo, in full working-frame
+        # coordinates (not the scaled-down display ones) - lets her mark
+        # several separate teeth with their own boxes instead of being
+        # limited to one box per photo. Reset whenever she moves to a
+        # different image, same as the other per-filename state above.
+        if st.session_state.get("box_list_filename") != filename:
+            st.session_state.box_list = []
+            st.session_state.box_list_filename = filename
+
+        if st.session_state.box_list:
+            preview = display_frame.copy()
+            for b in st.session_state.box_list:
+                bx = [int(round(c * scale)) for c in b]
+                cv2.rectangle(preview, (bx[0], bx[1]), (bx[2], bx[3]), (0, 255, 0), 2)
+            st.image(preview, caption=f"{len(st.session_state.box_list)} box(es) added so far",
+                     use_container_width=True)
 
         if input_mode.startswith("✏️"):
             # Our own component, built from scratch on the Pointer Events
@@ -681,16 +720,56 @@ def main():
 
             ready_box = st.session_state.get("tap_box_ready")
 
-        rerun_col, cancel_col = st.columns(2)
-        if rerun_col.button("Rerun with this box", type="primary", use_container_width=True):
-            if ready_box is None:
+        # Canvas/tap coords were shown scaled down from the 1024x1024
+        # working frame - scale back up to that same space, which is what
+        # the model actually expects, before storing/using any box.
+        pending_box_full = [c / scale for c in ready_box] if ready_box is not None else None
+
+        add_col, clear_col = st.columns(2)
+        if add_col.button("➕ Add this box (for another tooth)", use_container_width=True,
+                          help="Covers a different tooth/region with its own box. Leave "
+                               "unused for the normal single-box case - just draw one box "
+                               "and tap Rerun below."):
+            if pending_box_full is None:
                 st.warning("Draw or tap a box first.")
             else:
-                # Canvas/tap coords were shown scaled down from the
-                # 1024x1024 working frame - scale the box back up to that
-                # same space, which is exactly what the model expects.
-                box = np.array([c / scale for c in ready_box], dtype=np.float32)
-                new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
+                st.session_state.box_list.append(pending_box_full)
+                st.session_state.tap_corner1 = None
+                st.session_state.tap_box_ready = None
+                st.rerun()
+        if clear_col.button("🗑️ Clear added boxes", use_container_width=True,
+                            disabled=not st.session_state.box_list):
+            st.session_state.box_list = []
+            st.rerun()
+
+        # The box she's currently drawn/tapped (if any) counts too, on top
+        # of whatever's already in the list - so the LAST box doesn't need
+        # its own separate "Add" tap before Rerun.
+        all_boxes = list(st.session_state.box_list)
+        if pending_box_full is not None:
+            all_boxes = all_boxes + [pending_box_full]
+        rerun_label = f"Rerun with {len(all_boxes)} boxes" if len(all_boxes) > 1 else "Rerun with this box"
+
+        rerun_col, cancel_col = st.columns(2)
+        if rerun_col.button(rerun_label, type="primary", use_container_width=True):
+            if not all_boxes:
+                st.warning("Draw or tap a box first.")
+            else:
+                if len(all_boxes) == 1:
+                    box = np.array(all_boxes[0], dtype=np.float32)
+                    new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
+                    st.session_state.per_box_masks_result = None  # only one box - nothing extra to show
+                else:
+                    # One shared image_encoder pass for every box, not one
+                    # pass per box - see run_inference_multi_box's docstring.
+                    new_mask, per_box_masks = rerun_with_boxes(
+                        medsam_model, st.session_state.image_tensor, all_boxes)
+                    st.session_state.per_box_masks_result = per_box_masks
+                # Her corrected boxes, kept regardless of how many there were -
+                # this is what later lets a YOLO fine-tuning pass learn from
+                # her real corrections instead of only ever seeing its own
+                # original (possibly wrong) guesses.
+                st.session_state.last_boxes_used = all_boxes
                 # Keep the old mask around so the comparison screen can show
                 # what changed - without this, overwriting predicted_mask
                 # straight away would mean there's nothing left to compare.
@@ -705,24 +784,40 @@ def main():
                     np.save(cached_mask_path, new_mask)  # keep disk cache in sync with her correction
                 st.session_state.tap_corner1 = None
                 st.session_state.tap_box_ready = None
+                st.session_state.box_list = []
                 st.session_state.stage = "box_result"
                 st.rerun()
         if cancel_col.button("Cancel", use_container_width=True):
             st.session_state.tap_corner1 = None
             st.session_state.tap_box_ready = None
+            st.session_state.box_list = []
             st.session_state.stage = "reviewing"
             st.rerun()
 
     # ---- Stage: box_result (compare old mask vs the box-rerun result) ----
     elif st.session_state.stage == "box_result":
-        st.write("Here's the result before and after your box.")
+        per_box_masks = st.session_state.get("per_box_masks_result")
+        if per_box_masks:
+            # Show what EACH box found on its own, before the union - so
+            # it's visible that box 1 covered this tooth, box 2 covered that
+            # one, etc., not just the final combined blob with no way to
+            # tell which box contributed what.
+            st.write(f"You marked {len(per_box_masks)} boxes - here's what each one found:")
+            box_cols = st.columns(len(per_box_masks))
+            for i, (col, box_mask) in enumerate(zip(box_cols, per_box_masks)):
+                with col:
+                    st.image(overlay_mask(original_image, box_mask),
+                             caption=f"Box {i + 1}", use_container_width=True)
+            st.write("Combined into one final mask:")
+
+        st.write("Here's the result before and after your box(es).")
         before_col, after_col = st.columns(2)
         with before_col:
             st.image(overlay_mask(original_image, st.session_state.mask_before_rerun),
                      caption="Before (original prediction)", use_container_width=True)
         with after_col:
             st.image(overlay_mask(original_image, mask),
-                     caption="After (your box)", use_container_width=True)
+                     caption="After (your box(es), combined)", use_container_width=True)
 
         accept_col, redraw_col = st.columns(2)
         if accept_col.button("Use this result", type="primary", use_container_width=True):
@@ -855,7 +950,8 @@ def main():
             mask_name = filename.rsplit(".", 1)[0] + "_mask.png"
             file_id = client.upload_bytes(mask_name, approved_folder_id, mask_bytes, "image/png")
             st.session_state.reviews_db = save_review(
-                client, filename, "approved_after_edit", file_id, doctor_shade)
+                client, filename, "approved_after_edit", file_id, doctor_shade,
+                corrected_boxes=st.session_state.get("last_boxes_used"))
             # Keep the in-session/disk-cached mask in sync with what was
             # just saved - without this, "What the model sees" would keep
             # showing the stale ORIGINAL prediction if she revisits this

@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import tempfile
+import threading
 import urllib.request
 from collections import OrderedDict
 import numpy as np
@@ -139,6 +140,85 @@ LAMBDA_STARTER_URL = os.environ.get("LAMBDA_STARTER_URL")
 # --------------------------------------------------------------------------
 SESSION_CACHE_MAX = 30
 CACHE_DIR = os.environ.get("PREDICTION_CACHE_DIR", "/tmp/tooth_review_cache")
+
+# --------------------------------------------------------------------------
+# PREFETCH (compute the NEXT photo while she's still looking at/drawing on
+# the current one, so clicking "Next" lands on an already-finished result
+# instead of waiting for a fresh download + inference every time).
+#
+# Module-level, not st.session_state - a background thread can't safely
+# touch Streamlit's session state (it belongs to the main script-run
+# thread), so prefetched results land here first and get copied into the
+# normal session cache the next time the main thread actually looks for
+# them.
+#
+# _shared_resource_lock serializes every real call into the shared Drive
+# client and the shared MedSAM/YOLO model objects - whether it's this
+# background prefetch or a foreground "Rerun with this box" click. Without
+# it, a prefetch thread and a foreground click could end up inside the same
+# model/HTTP objects at the same time, which they're not written to handle
+# safely. Whichever one asks first just goes first; the other waits its
+# turn instead of racing - in practice a short wait, since she typically
+# spends far longer looking at/drawing on a photo than one inference call
+# takes.
+_shared_resource_lock = threading.Lock()
+_prefetch_cache = {}          # filename -> (image_tensor, image_resized_uint8, original_image, mask)
+_prefetch_state_lock = threading.Lock()  # protects the two dicts below (cheap, not the heavy lock above)
+_prefetch_in_progress = {}    # filename -> True, while a thread is working on it
+
+
+def _take_from_prefetch_cache(filename):
+    with _prefetch_state_lock:
+        return _prefetch_cache.pop(filename, None)
+
+
+def start_prefetch(filename, file_id, client, medsam_model, yolo_model):
+    """Fire-and-forget: if `filename` isn't already cached/being fetched,
+    kick off a background thread to download + predict it, one neighbor
+    ahead - see run_inference_multi_box's sibling reasoning in infer.py for
+    why a SINGLE shared encoder/connection matters, same idea here but
+    across threads instead of across boxes."""
+    with _prefetch_state_lock:
+        if filename in _prefetch_cache or filename in _prefetch_in_progress:
+            return
+        _prefetch_in_progress[filename] = True
+
+    def worker():
+        try:
+            with _shared_resource_lock:
+                disk_image_bytes, disk_mask = load_from_disk_cache(filename)
+                image_bytes = disk_image_bytes if disk_image_bytes is not None else client.download_bytes(file_id)
+                suffix = os.path.splitext(filename)[1] or ".jpg"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    tmp.write(image_bytes)
+                    tmp_path = tmp.name
+                try:
+                    image_tensor, original_image, image_resized_uint8 = preprocess_image(tmp_path)
+                finally:
+                    os.remove(tmp_path)
+                if disk_mask is not None:
+                    mask = disk_mask
+                else:
+                    bbox = None
+                    if yolo_model is not None:
+                        bbox = get_bbox_prompt_yolo(image_resized_uint8, yolo_model)
+                    if bbox is None:
+                        bbox = get_bbox_prompt(image_tensor.shape[-2:])
+                    mask = run_inference(medsam_model, image_tensor, bbox)
+                    save_to_disk_cache(filename, image_bytes, mask)
+            with _prefetch_state_lock:
+                _prefetch_cache[filename] = (image_tensor, image_resized_uint8, original_image, mask)
+        except Exception:
+            # Best-effort only - if this fails for any reason (a flaky
+            # Drive call, anything), she just gets the normal slow path
+            # when she actually navigates there. A background prefetch
+            # failing silently is fine; it must never crash the app.
+            pass
+        finally:
+            with _prefetch_state_lock:
+                _prefetch_in_progress.pop(filename, None)
+
+    threading.Thread(target=worker, daemon=True).start()
 
 
 def _session_cache():
@@ -461,45 +541,61 @@ def main():
     if "last_prediction_filename" not in st.session_state or \
             st.session_state.last_prediction_filename != filename:
         cached = get_from_session_cache(filename)
+        if cached is None:
+            # A background prefetch thread (started the last time she
+            # looked at the PREVIOUS photo) may have already finished this
+            # one while she was still reading/drawing - check that before
+            # falling back to the slow disk/Drive path.
+            cached = _take_from_prefetch_cache(filename)
+
         if cached is not None:
-            # Layer 1 hit - already in RAM from earlier this session
-            # (a Previous/Next bounce). No Drive call, no inference.
+            # Layer 1 hit (RAM from earlier this session) or a finished
+            # prefetch - either way, no Drive call, no inference needed now.
             image_tensor, image_resized_uint8, original_image, mask = cached
         else:
-            disk_image_bytes, disk_mask = load_from_disk_cache(filename)
-            if disk_image_bytes is not None:
-                # Layer 2 hit - downloaded/computed in an earlier session.
-                # Drive download is skipped; preprocess_image is still run
-                # (cheap resize/tensor-conversion) so a later box-redraw has
-                # a real tensor to work with, but inference itself is
-                # skipped whenever the mask was cached too.
-                image_bytes = disk_image_bytes
-                suffix = os.path.splitext(filename)[1] or ".jpg"
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                    tmp.write(image_bytes)
-                    tmp_path = tmp.name
-                try:
-                    image_tensor, original_image, image_resized_uint8 = preprocess_image(tmp_path)
-                finally:
-                    os.remove(tmp_path)
-                if disk_mask is not None:
-                    mask = disk_mask
+            with _shared_resource_lock:  # same lock the prefetch thread uses - see start_prefetch
+                disk_image_bytes, disk_mask = load_from_disk_cache(filename)
+                if disk_image_bytes is not None:
+                    # Layer 2 hit - downloaded/computed in an earlier session.
+                    # Drive download is skipped; preprocess_image is still run
+                    # (cheap resize/tensor-conversion) so a later box-redraw has
+                    # a real tensor to work with, but inference itself is
+                    # skipped whenever the mask was cached too.
+                    image_bytes = disk_image_bytes
+                    suffix = os.path.splitext(filename)[1] or ".jpg"
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                        tmp.write(image_bytes)
+                        tmp_path = tmp.name
+                    try:
+                        image_tensor, original_image, image_resized_uint8 = preprocess_image(tmp_path)
+                    finally:
+                        os.remove(tmp_path)
+                    if disk_mask is not None:
+                        mask = disk_mask
+                    else:
+                        bbox = None
+                        if yolo_model is not None:
+                            bbox = get_bbox_prompt_yolo(image_resized_uint8, yolo_model)
+                        if bbox is None:
+                            bbox = get_bbox_prompt(image_tensor.shape[-2:])
+                        mask = run_inference(medsam_model, image_tensor, bbox)
+                        save_to_disk_cache(filename, image_bytes, mask)
                 else:
-                    bbox = None
-                    if yolo_model is not None:
-                        bbox = get_bbox_prompt_yolo(image_resized_uint8, yolo_model)
-                    if bbox is None:
-                        bbox = get_bbox_prompt(image_tensor.shape[-2:])
-                    mask = run_inference(medsam_model, image_tensor, bbox)
+                    # Full miss - never seen this photo before in any cache.
+                    image_bytes = client.download_bytes(image_entry["id"])
+                    image_tensor, image_resized_uint8, original_image, mask = predict_mask(
+                        image_bytes, filename, medsam_model, yolo_model
+                    )
                     save_to_disk_cache(filename, image_bytes, mask)
-            else:
-                # Full miss - never seen this photo before in any cache.
-                image_bytes = client.download_bytes(image_entry["id"])
-                image_tensor, image_resized_uint8, original_image, mask = predict_mask(
-                    image_bytes, filename, medsam_model, yolo_model
-                )
-                save_to_disk_cache(filename, image_bytes, mask)
-            put_in_session_cache(filename, (image_tensor, image_resized_uint8, original_image, mask))
+        put_in_session_cache(filename, (image_tensor, image_resized_uint8, original_image, mask))
+
+        # Kick off the NEXT photo's download+prediction in the background
+        # now, while she's about to spend time looking at/drawing on THIS
+        # one - a no-op if it's already cached or already being fetched.
+        next_index = st.session_state.current_index + 1
+        if next_index < len(image_list):
+            next_entry = image_list[next_index]
+            start_prefetch(next_entry["name"], next_entry["id"], client, medsam_model, yolo_model)
 
         st.session_state.image_tensor = image_tensor
         st.session_state.image_resized_uint8 = image_resized_uint8
@@ -755,16 +851,17 @@ def main():
             if not all_boxes:
                 st.warning("Draw or tap a box first.")
             else:
-                if len(all_boxes) == 1:
-                    box = np.array(all_boxes[0], dtype=np.float32)
-                    new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
-                    st.session_state.per_box_masks_result = None  # only one box - nothing extra to show
-                else:
-                    # One shared image_encoder pass for every box, not one
-                    # pass per box - see run_inference_multi_box's docstring.
-                    new_mask, per_box_masks = rerun_with_boxes(
-                        medsam_model, st.session_state.image_tensor, all_boxes)
-                    st.session_state.per_box_masks_result = per_box_masks
+                with _shared_resource_lock:  # don't race a background prefetch using the same model
+                    if len(all_boxes) == 1:
+                        box = np.array(all_boxes[0], dtype=np.float32)
+                        new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
+                        st.session_state.per_box_masks_result = None  # only one box - nothing extra to show
+                    else:
+                        # One shared image_encoder pass for every box, not one
+                        # pass per box - see run_inference_multi_box's docstring.
+                        new_mask, per_box_masks = rerun_with_boxes(
+                            medsam_model, st.session_state.image_tensor, all_boxes)
+                        st.session_state.per_box_masks_result = per_box_masks
                 # Her corrected boxes, kept regardless of how many there were -
                 # this is what later lets a YOLO fine-tuning pass learn from
                 # her real corrections instead of only ever seeing its own

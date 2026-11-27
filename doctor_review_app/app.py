@@ -854,19 +854,31 @@ def main():
                 with _shared_resource_lock:  # don't race a background prefetch using the same model
                     if len(all_boxes) == 1:
                         box = np.array(all_boxes[0], dtype=np.float32)
-                        new_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
+                        fresh_mask = rerun_with_box(medsam_model, st.session_state.image_tensor, box)
                         st.session_state.per_box_masks_result = None  # only one box - nothing extra to show
                     else:
                         # One shared image_encoder pass for every box, not one
                         # pass per box - see run_inference_multi_box's docstring.
-                        new_mask, per_box_masks = rerun_with_boxes(
+                        fresh_mask, per_box_masks = rerun_with_boxes(
                             medsam_model, st.session_state.image_tensor, all_boxes)
                         st.session_state.per_box_masks_result = per_box_masks
-                # Her corrected boxes, kept regardless of how many there were -
-                # this is what later lets a YOLO fine-tuning pass learn from
-                # her real corrections instead of only ever seeing its own
-                # original (possibly wrong) guesses.
-                st.session_state.last_boxes_used = all_boxes
+                # Union with whatever was already accepted/shown before THIS
+                # rerun, not a straight replacement - drawing a second round
+                # of boxes (e.g. "Draw the box again" to cover a missed
+                # top-left tooth after already accepting a right-side fix)
+                # must ADD that region, not throw away the first round's
+                # already-correct teeth. Confirmed as the actual bug: a
+                # second box-rerun was wiping out the first one's result
+                # entirely instead of keeping both.
+                new_mask = np.maximum(mask, fresh_mask)
+                # Her corrected boxes, kept regardless of how many there were
+                # or across however many rounds of redrawing happened - this
+                # is what later lets a YOLO fine-tuning pass learn from her
+                # real corrections instead of only ever seeing its own
+                # original (possibly wrong) guesses. Accumulated across
+                # rounds (not overwritten) for the same reason the mask
+                # itself is unioned, not replaced, above.
+                st.session_state.last_boxes_used = (st.session_state.get("last_boxes_used") or []) + all_boxes
                 # Keep the old mask around so the comparison screen can show
                 # what changed - without this, overwriting predicted_mask
                 # straight away would mean there's nothing left to compare.
